@@ -92,6 +92,27 @@ class SpeechPipeline:
         self.stt = stt or IsolatedSttEngine(self.config.stt)
         self._active_workers: List[threading.Thread] = []
         self._worker_lock = threading.Lock()
+        self.last_run_timing: Dict[str, Any] = {}
+
+    def _call_stt_transcribe(
+        self,
+        samples: np.ndarray,
+        sample_rate: int = 16000,
+        abort_event: Optional[Any] = None,
+        timeout: Optional[float] = None
+    ) -> Tuple[str, float]:
+        """
+        Invokes self.stt.transcribe with argument compatibility check via inspect.signature.
+        Avoids broad try/except TypeError which would swallow internal inference errors.
+        """
+        import inspect
+        sig = inspect.signature(self.stt.transcribe)
+        kwargs = {}
+        if "abort_event" in sig.parameters:
+            kwargs["abort_event"] = abort_event
+        if "timeout" in sig.parameters:
+            kwargs["timeout"] = timeout
+        return self.stt.transcribe(samples, sample_rate, **kwargs)
 
     def has_running_workers(self) -> bool:
         """Check if any worker threads from prior runs are still alive."""
@@ -213,6 +234,7 @@ class SpeechPipeline:
                 "text": text,
                 "rtf": rtf,
                 "infer_ms": infer_ms,
+                "request_timeout_sec": effective_timeout,
                 "endpoint_reason": "direct_bypass"
             }]
         )
@@ -313,6 +335,7 @@ class SpeechPipeline:
                 "rtf": rtf,
                 "queue_wait_ms": 0.0,
                 "infer_ms": infer_ms,
+                "request_timeout_sec": effective_timeout,
                 "endpoint_reason": seg.endpoint_reason
             })
 
@@ -386,6 +409,10 @@ class SpeechPipeline:
 
         stream_start_wall_ts = time.perf_counter()
         clock_origin_time = time.time()
+        self.last_run_timing = {
+            "stream_start_ts": stream_start_wall_ts,
+            "mode": "replay"
+        }
 
         effective_req_timeout = request_timeout if request_timeout is not None else self.config.stt.request_timeout_sec
 
@@ -449,6 +476,8 @@ class SpeechPipeline:
                         stream_sample_idx_start=chunk_item.stream_sample_idx_start
                     )
                     for seg in ready_segs:
+                        if "first_segment_ready_ts" not in self.last_run_timing:
+                            self.last_run_timing["first_segment_ready_ts"] = seg.ready_ts
                         while not abort_event.is_set():
                             try:
                                 segment_queue.put(seg, timeout=self.config.queue.put_timeout)
@@ -519,6 +548,8 @@ class SpeechPipeline:
 
                     seg: Segment = item
                     stt_start_ts = time.perf_counter()
+                    if "first_stt_request_ts" not in self.last_run_timing:
+                        self.last_run_timing["first_stt_request_ts"] = stt_start_ts
                     queue_wait_ms = (stt_start_ts - seg.ready_ts) * 1000.0
 
                     if artificial_stt_delay_sec > 0:
@@ -535,19 +566,12 @@ class SpeechPipeline:
                         segment_queue.task_done()
                         break
 
-                    try:
-                        text, infer_ms = self.stt.transcribe(
-                            seg.samples,
-                            16000,
-                            abort_event=abort_event,
-                            timeout=effective_req_timeout
-                        )
-                    except TypeError:
-                        text, infer_ms = self.stt.transcribe(
-                            seg.samples,
-                            16000,
-                            abort_event=abort_event
-                        )
+                    text, infer_ms = self._call_stt_transcribe(
+                        seg.samples,
+                        16000,
+                        abort_event=abort_event,
+                        timeout=effective_req_timeout
+                    )
 
                     if abort_event.is_set():
                         segment_queue.task_done()
@@ -728,6 +752,11 @@ class SpeechPipeline:
                 with self._worker_lock:
                     self._active_workers = [t for t in self._active_workers if t.is_alive()]
 
+                t_now = time.perf_counter()
+                self.last_run_timing["failure_caught_ts"] = t_now
+                self.last_run_timing["child_timing"] = getattr(self.stt, "last_timing_event", {})
+                self.last_run_timing["total_elapsed_sec"] = t_now - stream_start_wall_ts
+
             if vad_timed_out:
                 raise TimeoutError(f"VAD worker failed to terminate within {join_timeout}s join deadline")
             if stt_timed_out:
@@ -817,6 +846,10 @@ class SpeechPipeline:
 
         stream_start_wall_ts = time.perf_counter()
         clock_origin_time = time.time()
+        self.last_run_timing = {
+            "stream_start_ts": stream_start_wall_ts,
+            "mode": "mic"
+        }
 
         effective_req_timeout = request_timeout if request_timeout is not None else self.config.stt.request_timeout_sec
 
@@ -930,6 +963,8 @@ class SpeechPipeline:
                         stream_sample_idx_start=chunk_item.stream_sample_idx_start
                     )
                     for seg in ready_segs:
+                        if "first_segment_ready_ts" not in self.last_run_timing:
+                            self.last_run_timing["first_segment_ready_ts"] = seg.ready_ts
                         while not abort_event.is_set():
                             try:
                                 segment_queue.put(seg, timeout=self.config.queue.put_timeout)
@@ -998,25 +1033,20 @@ class SpeechPipeline:
 
                     seg: Segment = item
                     stt_start_ts = time.perf_counter()
+                    if "first_stt_request_ts" not in self.last_run_timing:
+                        self.last_run_timing["first_stt_request_ts"] = stt_start_ts
                     queue_wait_ms = (stt_start_ts - seg.ready_ts) * 1000.0
 
                     if abort_event.is_set():
                         segment_queue.task_done()
                         break
 
-                    try:
-                        text, infer_ms = self.stt.transcribe(
-                            seg.samples,
-                            16000,
-                            abort_event=abort_event,
-                            timeout=effective_req_timeout
-                        )
-                    except TypeError:
-                        text, infer_ms = self.stt.transcribe(
-                            seg.samples,
-                            16000,
-                            abort_event=abort_event
-                        )
+                    text, infer_ms = self._call_stt_transcribe(
+                        seg.samples,
+                        16000,
+                        abort_event=abort_event,
+                        timeout=effective_req_timeout
+                    )
 
                     if abort_event.is_set():
                         segment_queue.task_done()
@@ -1186,6 +1216,11 @@ class SpeechPipeline:
 
                 with self._worker_lock:
                     self._active_workers = [t for t in self._active_workers if t.is_alive()]
+
+                t_now = time.perf_counter()
+                self.last_run_timing["failure_caught_ts"] = t_now
+                self.last_run_timing["child_timing"] = getattr(self.stt, "last_timing_event", {})
+                self.last_run_timing["total_elapsed_sec"] = t_now - stream_start_wall_ts
 
             if vad_timed_out:
                 raise TimeoutError(f"VAD worker failed to terminate within {join_timeout}s join deadline")

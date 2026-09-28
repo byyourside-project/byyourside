@@ -106,12 +106,12 @@ def run_scenario_2() -> Dict[str, Any]:
     print(f"Scenario 2 Result: {'PASS' if passed else 'FAIL'} | Segments detected: {len(detected)}")
     return res
 
-def run_scenario_3() -> Dict[str, Any]:
+def run_scenario_3(revision: str = "06") -> Dict[str, Any]:
     """
     Scenario 3 (Rev 01): Continuous speech (>30s) with short pauses (0.2s) less than min_silence (0.5s).
     With hard_max_speech_duration=4.0s enforced, verifies segment durations and actual end-to-end latencies.
     """
-    print("\n--- Running Scenario 3 (Rev 01): Continuous speech (>30s) & 4.0s hard cutoff ---")
+    print(f"\n--- Running Scenario 3 (Rev {revision}): Continuous speech (>30s) & 4.0s hard cutoff ---")
     samples, sr = load_and_normalize_audio(
         "models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/test_wavs/ko.wav",
         target_sr=16000
@@ -127,7 +127,7 @@ def run_scenario_3() -> Dict[str, Any]:
     continuous_audio = np.concatenate(chain)
     total_dur_sec = len(continuous_audio) / float(sr)
 
-    temp_wav = "logs/test_fixtures/temp_continuous_speech_rev1.wav"
+    temp_wav = f"logs/test_fixtures/temp_continuous_speech_rev{revision}.wav"
     os.makedirs("logs/test_fixtures", exist_ok=True)
     wavfile.write(temp_wav, sr, (continuous_audio * 32767).astype(np.int16))
 
@@ -140,7 +140,7 @@ def run_scenario_3() -> Dict[str, Any]:
         stt=SttConfig(num_threads=4)
     )
     pipeline = SpeechPipeline(config)
-    res = pipeline.run_replay(temp_wav, speed=1.0, run_id="scenario3_rev3_replay")
+    res = pipeline.run_replay(temp_wav, speed=1.0, run_id=f"scenario3_rev{revision}_replay")
 
     # Metrics with R1 clock corrections:
     # continuous_latency_stats tracks actual (result_emit - segment_start_speech_ts)
@@ -167,13 +167,13 @@ def run_scenario_3() -> Dict[str, Any]:
     print(f"Scenario 3 Result: {'PASS' if passed else 'FAIL'} | Segments: {res.segment_count} | p95 Cont Latency: {p95_cont_lat:.1f}ms | p95 Cutoff Delay: {p95_delay_after:.1f}ms")
     return res_data
 
-def run_scenario_4() -> Dict[str, Any]:
+def run_scenario_4(revision: str = "06") -> Dict[str, Any]:
     """
     Scenario 4 (Rev 02): Forced boundary cutoff, sample preservation, and word loss fixture.
     Creates a continuous phrase where a word strictly straddles across the 4.0s hard cutoff boundary.
     Rev 02 guarantees 100% sample preservation (the 282ms discarded in Rev 01 is reconstituted as Seg #2).
     """
-    print("\n--- Running Scenario 4 (Rev 02): Forced cutoff boundary fixture & sample preservation ---")
+    print(f"\n--- Running Scenario 4 (Rev {revision}): Forced cutoff boundary fixture & sample preservation ---")
     samples, sr = load_and_normalize_audio(
         "models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/test_wavs/ko.wav",
         target_sr=16000
@@ -185,7 +185,7 @@ def run_scenario_4() -> Dict[str, Any]:
     # Concatenate speech directly with NO pause: 2.89s + 2.89s = 5.78s
     # With hard_max=4.0s, the cutoff occurs at 4.00s (which is 1.11s into the 2nd repetition)
     cont_forced = np.concatenate([speech, speech])
-    temp_wav = "logs/test_fixtures/temp_forced_cutoff.wav"
+    temp_wav = f"logs/test_fixtures/temp_forced_cutoff_rev{revision}.wav"
     os.makedirs("logs/test_fixtures", exist_ok=True)
     wavfile.write(temp_wav, sr, (cont_forced * 32767).astype(np.int16))
 
@@ -198,7 +198,7 @@ def run_scenario_4() -> Dict[str, Any]:
         stt=SttConfig(num_threads=4)
     )
     pipeline = SpeechPipeline(config)
-    res = pipeline.run_wav_vad(temp_wav, run_id="scenario4_rev3_boundary")
+    res = pipeline.run_wav_vad(temp_wav, run_id=f"scenario4_rev{revision}_boundary")
 
     full_hyp = " ".join([s["text"] for s in res.segments])
     ref_phrase = "조금만 생각을 하면서 살면 훨씬 편할 거야"
@@ -255,13 +255,13 @@ def run_scenario_4() -> Dict[str, Any]:
         print(f"  Seg #{s['id']} [{s['start_ms']:.1f}ms - {s['end_ms']:.1f}ms | {s['dur_ms']:.1f}ms, {s['reason']}]: \"{s['text']}\"")
     return res_data
 
-def run_scenario_6() -> Dict[str, Any]:
+def run_scenario_6(revision: str = "06") -> Dict[str, Any]:
     """
     Scenario 6 (Rev 02): Python socket monkeypatch smoke test for local execution.
     Note: As noted in R5, this test verifies that the pipeline makes zero socket calls via Python socket.connect.
     It does not claim full OS-level egress block, which remains NOT_RUN / PARTIAL.
     """
-    print("\n--- Running Scenario 6 (Rev 02): Local execution (Python connect smoke test) ---")
+    print(f"\n--- Running Scenario 6 (Rev {revision}): Local execution (Python connect smoke test) ---")
     orig_connect = socket.socket.connect
 
     def blocked_connect(self, *args, **kwargs):
@@ -272,7 +272,7 @@ def run_scenario_6() -> Dict[str, Any]:
     try:
         pipeline = SpeechPipeline()
         wav_path = "models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/test_wavs/ko.wav"
-        res = pipeline.run_wav_direct_stt(wav_path, run_id="scenario6_rev3_offline")
+        res = pipeline.run_wav_direct_stt(wav_path, run_id=f"scenario6_rev{revision}_offline")
         text = res.segments[0]["text"] if res.segments else ""
         passed = ("생각" in text or "조금" in text)
         err = None
@@ -295,7 +295,17 @@ def run_scenario_6() -> Dict[str, Any]:
     return res_data
 
 def main():
-    revision = "05" if "--rev5" in sys.argv else ("04" if "--rev4" in sys.argv else "03")
+    if "--rev6" in sys.argv:
+        revision = "06"
+    elif "--rev5" in sys.argv:
+        revision = "05"
+    elif "--rev4" in sys.argv:
+        revision = "04"
+    elif "--rev3" in sys.argv:
+        revision = "03"
+    else:
+        revision = "06"
+
     print(f"=================================================================")
     print(f" Running Task 01 Required Scenarios (Revision {revision})")
     results_file = f"logs/task_01_scenario_rev{revision}_results.json"
@@ -306,9 +316,9 @@ def main():
         "timestamp_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "scenario_1": run_scenario_1(),
         "scenario_2": run_scenario_2(),
-        "scenario_3": run_scenario_3(),
-        "scenario_4": run_scenario_4(),
-        "scenario_6": run_scenario_6(),
+        "scenario_3": run_scenario_3(revision),
+        "scenario_4": run_scenario_4(revision),
+        "scenario_6": run_scenario_6(revision),
     }
 
     os.makedirs("logs", exist_ok=True)

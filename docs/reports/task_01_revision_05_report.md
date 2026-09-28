@@ -16,6 +16,12 @@
 
 ---
 
+> [!NOTE]
+> **Revision 06 갱신 및 정정 안내**:
+> 본 보고서(Revision 05)에서 지적된 F1(부모 요청 예산 override의 자식 IPC 미전달 및 기본 예산 충돌 결함), F2(정리 시간 상수 차감 추정 정정 및 단일 monotonic 시계 실측 세분화, warm_up 추론 시간 vs 총 재초기화 시간 분리, 실제 discovery 테스트 ID 목록 정정, 시나리오별 고유 run_id 분리) 사항이 **[docs/reports/task_01_revision_06_report.md](file:///Users/jwlee/study1/byyourside/docs/reports/task_01_revision_06_report.md)**에서 수정 및 보완되었습니다. 최신 현황 및 정정된 수치는 해당 보고서를 참조하십시오.
+
+---
+
 ## 1. 종합 결과 및 판정
 
 - **판정**: **PARTIAL (Task 02 진입 보류 및 PM 검수 대기)**

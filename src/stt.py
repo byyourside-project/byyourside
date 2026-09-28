@@ -115,13 +115,21 @@ def _stt_process_worker_loop(
         cmd = msg[0]
         if cmd == "transcribe":
             req_id, samples, sample_rate, is_warmup = msg[1], msg[2], msg[3], msg[4]
+            req_timeout = msg[5] if len(msg) > 5 else None
             if uncooperative_delay > 0:
                 # Simulates uncooperative native inference hang (e.g. C/ONNX stuck in decode_stream)
                 # Does NOT check any cancellation token, strictly hangs for specified duration
                 time.sleep(uncooperative_delay)
             try:
-                text, infer_ms = engine.transcribe(samples, sample_rate, is_warmup=is_warmup)
+                text, infer_ms = engine.transcribe(
+                    samples, sample_rate, is_warmup=is_warmup, timeout=req_timeout
+                )
                 conn.send(("result", req_id, text, infer_ms))
+            except TimeoutError as te:
+                try:
+                    conn.send(("result_timeout", req_id, str(te), req_timeout))
+                except Exception:
+                    break
             except Exception as e:
                 try:
                     conn.send(("result_error", req_id, str(e)))
@@ -134,10 +142,22 @@ def _stt_process_worker_loop(
 
         elif cmd == "warm_up":
             duration_sec = msg[1]
+            warm_up_timeout = msg[2] if len(msg) > 2 else None
             if uncooperative_delay > 0:
                 time.sleep(uncooperative_delay)
-            infer_ms = engine.warm_up(duration_sec)
-            conn.send(("warm_up_result", infer_ms))
+            try:
+                infer_ms = engine.warm_up(duration_sec, timeout=warm_up_timeout)
+                conn.send(("warm_up_result", infer_ms))
+            except TimeoutError as te:
+                try:
+                    conn.send(("warm_up_timeout", str(te), warm_up_timeout))
+                except Exception:
+                    break
+            except Exception as e:
+                try:
+                    conn.send(("warm_up_error", str(e)))
+                except Exception:
+                    break
 
         elif cmd == "get_stats":
             conn.send(("stats", engine.inference_count, engine.total_audio_seconds, engine.total_inference_time_seconds, engine.cumulative_rtf))
@@ -179,6 +199,7 @@ class IsolatedSttEngine:
         self.last_roundtrip_ms = 0.0
         self.last_ipc_overhead_ms = 0.0
         self._req_counter = 0
+        self.last_timing_event: Dict[str, Any] = {}
 
         self.ensure_started()
 
@@ -258,8 +279,14 @@ class IsolatedSttEngine:
                 samples = samples.astype(np.float32)
 
             t_req_start = time.perf_counter()
+            self.last_timing_event = {
+                "req_id": req_id,
+                "t_req_issued": t_req_start,
+                "effective_timeout": effective_timeout,
+                "audio_duration_sec": audio_dur,
+            }
             try:
-                self._conn.send(("transcribe", req_id, samples, sample_rate, is_warmup))
+                self._conn.send(("transcribe", req_id, samples, sample_rate, is_warmup, effective_timeout))
             except (BrokenPipeError, EOFError, OSError) as e:
                 self._terminate_locked()
                 raise RuntimeError("STT worker process connection failed") from e
@@ -273,10 +300,14 @@ class IsolatedSttEngine:
                     return "", 0.0
 
                 if deadline and time.perf_counter() > deadline:
+                    t_timeout_detected = time.perf_counter()
+                    self.last_timing_event["t_timeout_detected"] = t_timeout_detected
                     self._terminate_locked()
+                    t_reap_completed = time.perf_counter()
+                    self.last_timing_event["t_reap_completed"] = t_reap_completed
                     raise TimeoutError(
                         f"STT inference request #{req_id} timed out after {effective_timeout:.2f}s deadline "
-                        f"(audio duration: {audio_dur:.2f}s)"
+                        f"(audio duration: {audio_dur:.2f}s, detected at +{t_timeout_detected - t_req_start:.3f}s)"
                     )
 
                 if self._proc is None or not self._proc.is_alive():
@@ -298,20 +329,39 @@ class IsolatedSttEngine:
                             ipc_overhead_ms = max(0.0, parent_roundtrip_ms - infer_ms)
                             self.last_roundtrip_ms = parent_roundtrip_ms
                             self.last_ipc_overhead_ms = ipc_overhead_ms
+                            self.last_timing_event["t_req_completed"] = t_req_end
+                            self.last_timing_event["infer_ms"] = infer_ms
+                            self.last_timing_event["roundtrip_ms"] = parent_roundtrip_ms
+                            self.last_timing_event["non_inference_overhead_ms"] = ipc_overhead_ms
                             if not is_warmup:
                                 self.inference_count += 1
                                 self.total_audio_seconds += audio_dur
                                 self.total_inference_time_seconds += (infer_ms / 1000.0)
                             return text, infer_ms
+
+                    elif msg[0] == "result_timeout":
+                        _, res_req_id, err_msg, req_to = msg
+                        t_timeout_detected = time.perf_counter()
+                        self.last_timing_event["t_timeout_detected"] = t_timeout_detected
+                        self._terminate_locked()
+                        t_reap_completed = time.perf_counter()
+                        self.last_timing_event["t_reap_completed"] = t_reap_completed
+                        raise TimeoutError(
+                            f"STT inference request #{res_req_id} timed out after {req_to:.2f}s deadline "
+                            f"(child reported: {err_msg})"
+                        )
+
                     elif msg[0] == "result_error":
-                        raise RuntimeError(f"STT inference error: {msg[2]}")
+                        _, res_req_id, err_msg = msg
+                        self._terminate_locked()
+                        raise RuntimeError(f"STT inference error: {err_msg}")
 
     def warm_up(self, duration_seconds: float = 1.0, timeout: Optional[float] = None) -> float:
         self.ensure_started()
         effective_timeout = timeout if timeout is not None else self.config.warm_up_timeout_sec
         with self._lock:
             try:
-                self._conn.send(("warm_up", duration_seconds))
+                self._conn.send(("warm_up", duration_seconds, effective_timeout))
             except (BrokenPipeError, EOFError, OSError) as e:
                 self._terminate_locked()
                 raise RuntimeError("STT worker process connection failed during warm_up") from e
@@ -324,7 +374,10 @@ class IsolatedSttEngine:
                     raise RuntimeError("STT worker process terminated during warm_up") from e
                 if msg[0] == "warm_up_result":
                     return msg[1]
-                elif msg[0] == "result_error":
+                elif msg[0] == "warm_up_timeout":
+                    self._terminate_locked()
+                    raise TimeoutError(f"STT warm_up timed out after {msg[2]:.2f}s deadline: {msg[1]}")
+                elif msg[0] == "warm_up_error" or msg[0] == "result_error":
                     self._terminate_locked()
                     raise RuntimeError(f"STT warm_up error: {msg[1]}")
 
