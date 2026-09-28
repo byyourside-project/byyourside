@@ -1,0 +1,29 @@
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Models and checkpoints
+models/
+*.onnx
+
+# Audio files and recordings
+audio/
+recordings/
+*.wav
+
+# Logs and benchmark results
+logs/
+*.jsonl
+*.log
+
+# OS metadata
+.DS_Store
+.idea/
+.vscode/
