@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from typing import Optional
 import os
 
 @dataclass
@@ -7,10 +8,11 @@ class VadConfig:
     model_path: str = "models/silero_vad.onnx"
     sample_rate: int = 16000
     threshold: float = 0.5
-    min_silence_duration: float = 0.5  # seconds
-    min_speech_duration: float = 0.25  # seconds
-    max_speech_duration: float = 4.0   # seconds
-    window_size: int = 512             # samples (32ms at 16kHz)
+    min_silence_duration: float = 0.5    # seconds
+    min_speech_duration: float = 0.25    # seconds
+    max_speech_duration: float = 4.0     # seconds (VAD internal soft-cut trigger)
+    hard_max_speech_duration: Optional[float] = 4.0  # seconds (enforced upper bound)
+    window_size: int = 512               # samples (32ms at 16kHz)
     num_threads: int = 1
     provider: str = "cpu"
 
@@ -46,15 +48,15 @@ class AudioConfig:
     device_sample_rate: int = 48000
     target_sample_rate: int = 16000
     channels: int = 1
-    chunk_size_samples: int = 1536     # 32ms at 48kHz (corresponds to 512 at 16kHz)
-    device_index: int = None           # None for default input device
+    chunk_size_samples: int = 1536       # 32ms at 48kHz (corresponds to 512 at 16kHz)
+    device_index: Optional[int] = None   # None for default input device
 
 @dataclass
 class QueueConfig:
     """Audio & segment queue configuration."""
-    max_audio_queue_size: int = 200    # audio chunks (~6.4 seconds buffer)
-    max_segment_queue_size: int = 50   # segments
-    drop_policy: str = "drop_oldest"   # 'drop_oldest' or 'reject_new'
+    max_audio_queue_size: int = 300      # audio chunks (~9.6 seconds buffer)
+    max_segment_queue_size: int = 100    # segments
+    put_timeout: float = 0.5             # timeout when putting to queues
 
 @dataclass
 class PipelineConfig:

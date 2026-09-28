@@ -1,5 +1,8 @@
 # Task 01 — 노트북 환경 확인 및 한국어 VAD/STT PoC 결과 보고서
 
+> [!WARNING]
+> **검수 및 개정 안내**: 본 보고서는 2026-09-28 최초 작성된 초안 보고서입니다. PM 검수 결과(`CHANGES_REQUESTED`, [docs/reports/task_01_pm_review.md](file:///Users/jwlee/study1/byyourside/docs/reports/task_01_pm_review.md))에 따른 결함 수정(R1~R7) 및 재측정 결과는 **최신 개정 보고서인 [docs/reports/task_01_revision_01_report.md](file:///Users/jwlee/study1/byyourside/docs/reports/task_01_revision_01_report.md)**를 참조하시기 바랍니다.
+
 - 작성일: 2026-09-28
 - 작업 ID: Task 01 (노트북 환경 확인 및 한국어 VAD/STT PoC)
 - 담당: Gemini 개발자 / 검수: 사용자와 PM

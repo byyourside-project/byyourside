@@ -1,8 +1,10 @@
+import os
 import re
 import unicodedata
 import resource
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
 import numpy as np
+import psutil
 
 def normalize_text(text: str, remove_punct: bool = True) -> str:
     """
@@ -17,21 +19,17 @@ def normalize_text(text: str, remove_punct: bool = True) -> str:
     text = text.lower()
     # 3. Handle punctuation if requested
     if remove_punct:
-        # Keep letters, numbers, and Korean characters (Hangul syllables, Jamo)
-        # Remove common punctuation symbols
         text = re.sub(r"[^\w\s가-힣]", " ", text)
     # 4. Collapse multiple spaces
     text = re.sub(r"\s+", " ", text).strip()
     return text
 
-def levenshtein_distance(ref: str, hyp: str) -> Tuple[int, int, int, int]:
+def levenshtein_distance(ref: List[str], hyp: List[str]) -> Tuple[int, int, int, int]:
     """
-    Compute Levenshtein distance at character level.
+    Compute Levenshtein distance at token/character level.
     Returns (distance, substitutions, deletions, insertions).
     """
     n, m = len(ref), len(hyp)
-    # dp[i][j] = (dist, sub, dele, ins)
-    # We can use standard 2D DP table
     dp = [[(0, 0, 0, 0)] * (m + 1) for _ in range(n + 1)]
 
     for i in range(1, n + 1):
@@ -44,13 +42,12 @@ def levenshtein_distance(ref: str, hyp: str) -> Tuple[int, int, int, int]:
             if ref[i - 1] == hyp[j - 1]:
                 dp[i][j] = dp[i - 1][j - 1]
             else:
-                # Substitution
                 sub_d, sub_s, sub_del, sub_ins = dp[i - 1][j - 1]
                 cand_sub = (sub_d + 1, sub_s + 1, sub_del, sub_ins)
-                # Deletion
+
                 del_d, del_s, del_del, del_ins = dp[i - 1][j]
                 cand_del = (del_d + 1, del_s, del_del + 1, del_ins)
-                # Insertion
+
                 ins_d, ins_s, ins_del, ins_ins = dp[i][j - 1]
                 cand_ins = (ins_d + 1, ins_s, ins_del, ins_ins + 1)
 
@@ -99,6 +96,43 @@ def compute_cer(reference: str, hypothesis: str, remove_punct: bool = True) -> D
         "norm_hyp": norm_hyp,
     }
 
+def compute_corpus_cer(items: List[Dict[str, str]], remove_punct: bool = True, ignore_space: bool = False) -> Dict[str, Any]:
+    """
+    Compute corpus-level aggregate CER: sum(distances) / sum(ref_lengths).
+    """
+    total_dist = 0
+    total_ref_len = 0
+    total_sub = 0
+    total_del = 0
+    total_ins = 0
+
+    for item in items:
+        ref = item["ref"]
+        hyp = item["hyp"]
+        if ignore_space:
+            ref = normalize_text(ref, remove_punct=remove_punct).replace(" ", "")
+            hyp = normalize_text(hyp, remove_punct=remove_punct).replace(" ", "")
+            res = compute_cer(ref, hyp, remove_punct=False)
+        else:
+            res = compute_cer(ref, hyp, remove_punct=remove_punct)
+
+        total_dist += res["distance"]
+        total_ref_len += res["ref_len"]
+        total_sub += res["substitutions"]
+        total_del += res["deletions"]
+        total_ins += res["insertions"]
+
+    corpus_cer = total_dist / total_ref_len if total_ref_len > 0 else 0.0
+    return {
+        "corpus_cer": corpus_cer,
+        "total_distance": total_dist,
+        "total_ref_len": total_ref_len,
+        "total_substitutions": total_sub,
+        "total_deletions": total_del,
+        "total_insertions": total_ins,
+        "ignore_space": ignore_space
+    }
+
 def calculate_percentiles(values: List[float]) -> Dict[str, float]:
     """Calculate p50, p95, p99, min, max, mean for a list of values."""
     if not values:
@@ -114,13 +148,27 @@ def calculate_percentiles(values: List[float]) -> Dict[str, float]:
         "max": float(np.max(arr)),
     }
 
-def get_process_memory_mb() -> float:
-    """Get current process peak RSS memory in MB."""
+def get_current_rss_mb() -> float:
+    """Get current process RSS (Resident Set Size) memory in MB via psutil."""
+    process = psutil.Process(os.getpid())
+    return process.memory_info().rss / (1024.0 * 1024.0)
+
+def get_peak_rss_mb() -> float:
+    """Get peak RSS memory in MB since process start via getrusage."""
     usage = resource.getrusage(resource.RUSAGE_SELF)
-    # On macOS, ru_maxrss is in bytes; on Linux, in kilobytes.
-    # macOS Darwin check:
     import sys
     if sys.platform == "darwin":
         return usage.ru_maxrss / (1024.0 * 1024.0)
     else:
         return usage.ru_maxrss / 1024.0
+
+def get_memory_stats() -> Dict[str, float]:
+    """Return both current RSS and peak RSS in MB."""
+    return {
+        "current_rss_mb": round(get_current_rss_mb(), 2),
+        "peak_rss_mb": round(get_peak_rss_mb(), 2)
+    }
+
+def get_process_memory_mb() -> float:
+    """Backward compatibility alias for peak RSS memory in MB."""
+    return get_peak_rss_mb()

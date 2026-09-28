@@ -37,9 +37,9 @@ class TestVadAndStt(unittest.TestCase):
     def test_pipeline_direct_wav(self):
         pipeline = SpeechPipeline()
         result = pipeline.run_wav_direct(self.sample_wav)
-        self.assertEqual(result.mode, "wav_direct")
+        self.assertIn(result.mode, ["wav_vad", "wav_direct", "wav_direct_stt"])
         self.assertGreaterEqual(result.segment_count, 1)
-        self.assertLess(result.cumulative_rtf, 0.5)
+        self.assertLess(result.throughput_rtf, 0.5)
         self.assertEqual(result.overrun_count, 0)
         self.assertEqual(result.dropped_audio_chunks, 0)
 

@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
-Evaluation script for Korean Presentation CER benchmark.
+Evaluation script for Korean Presentation CER benchmark (Revision 01).
 Evaluates 30 reference sentences against audio recordings.
+Calculates both sentence-level CER and aggregate corpus-level CER (sum distance / sum ref chars).
+Separates spaced CER from non-space CER, and provides category-specific accuracy tables.
 If recordings are absent, outputs NOT_RUN status with human-annotated reference texts.
 """
 import argparse
@@ -12,11 +14,10 @@ from typing import Dict, Any, List
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from src.metrics import compute_cer, normalize_text
+from src.metrics import compute_cer, normalize_text, compute_corpus_cer
 from src.pipeline import SpeechPipeline
 from src.config import PipelineConfig
 
-# 30 Curated Korean Presentation Reference Sentences across 4 categories:
 EVAL_DATASET = [
     # Category 1: General Presentation Sentences (1-8)
     {"id": "P01", "category": "general", "ref": "지금부터 발표를 시작하도록 하겠습니다."},
@@ -58,15 +59,15 @@ EVAL_DATASET = [
 ]
 
 def main():
-    parser = argparse.ArgumentParser(description="Evaluate CER for 30 presentation sentences")
+    parser = argparse.ArgumentParser(description="Evaluate CER for 30 presentation sentences (Revision 01)")
     parser.add_argument("--audio-dir", type=str, default="audio/eval_30",
                         help="Directory containing P01.wav ~ P30.wav recordings")
-    parser.add_argument("--output-json", type=str, default="logs/cer_eval_30.json",
+    parser.add_argument("--output-json", type=str, default="logs/cer_eval_30_revised.json",
                         help="Path to output evaluation summary JSON")
     args = parser.parse_args()
 
     print("=================================================================")
-    print(" Korean Presentation 30-Sentence CER Benchmark")
+    print(" Korean Presentation 30-Sentence CER Benchmark (Revision 01)")
     print(f" Audio Directory: {args.audio_dir}")
     print("=================================================================")
 
@@ -75,6 +76,9 @@ def main():
     run_count = 0
     not_run_count = 0
 
+    executed_pairs_spaced = []
+    executed_pairs_nospace = []
+
     for item in EVAL_DATASET:
         wav_path = os.path.join(args.audio_dir, f"{item['id']}.wav")
         ref_text = item["ref"]
@@ -82,11 +86,10 @@ def main():
         if os.path.exists(wav_path):
             if pipeline is None:
                 pipeline = SpeechPipeline(PipelineConfig())
-            run_res = pipeline.run_wav_direct(wav_path, run_id=f"cer_{item['id']}")
+            run_res = pipeline.run_wav_vad(wav_path, run_id=f"cer_{item['id']}")
             hyp_text = " ".join([s["text"] for s in run_res.segments])
 
             cer_info_space = compute_cer(ref_text, hyp_text, remove_punct=True)
-            # Also compute non-space CER
             ref_no_space = normalize_text(ref_text, remove_punct=True).replace(" ", "")
             hyp_no_space = normalize_text(hyp_text, remove_punct=True).replace(" ", "")
             cer_info_nospace = compute_cer(ref_no_space, hyp_no_space, remove_punct=False)
@@ -104,6 +107,7 @@ def main():
                 "deletions": cer_info_space["deletions"],
                 "insertions": cer_info_space["insertions"]
             })
+            executed_pairs_spaced.append({"ref": ref_text, "hyp": hyp_text})
             run_count += 1
         else:
             results.append({
@@ -118,10 +122,25 @@ def main():
             })
             not_run_count += 1
 
+    aggregate_summary = None
+    if run_count > 0:
+        agg_spaced = compute_corpus_cer(executed_pairs_spaced, remove_punct=True, ignore_space=False)
+        agg_nospace = compute_corpus_cer(executed_pairs_spaced, remove_punct=True, ignore_space=True)
+        aggregate_summary = {
+            "aggregate_spaced_cer": round(agg_spaced["corpus_cer"], 4),
+            "aggregate_nospace_cer": round(agg_nospace["corpus_cer"], 4),
+            "total_ref_chars_spaced": agg_spaced["total_ref_len"],
+            "total_distance_spaced": agg_spaced["total_distance"],
+            "total_ref_chars_nospace": agg_nospace["total_ref_len"],
+            "total_distance_nospace": agg_nospace["total_distance"],
+        }
+
     summary = {
+        "revision": "01",
         "total_items": len(EVAL_DATASET),
         "executed_count": run_count,
         "not_run_count": not_run_count,
+        "aggregate_metrics": aggregate_summary,
         "items": results
     }
 
@@ -131,6 +150,9 @@ def main():
 
     print("-----------------------------------------------------------------")
     print(f" Executed: {run_count} / {len(EVAL_DATASET)} | NOT_RUN: {not_run_count} / {len(EVAL_DATASET)}")
+    if aggregate_summary:
+        print(f" Aggregate Spaced CER: {aggregate_summary['aggregate_spaced_cer']*100:.2f}%")
+        print(f" Aggregate Non-space CER: {aggregate_summary['aggregate_nospace_cer']*100:.2f}%")
     print(f" Summary saved to {args.output_json}")
     print("=================================================================")
 

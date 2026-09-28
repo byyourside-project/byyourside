@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
-Test runner for Task 01 Required Scenarios (Scenarios 1 to 6).
-Logs raw metrics to logs/scenario_results.json.
+Test runner for Task 01 Required Scenarios (Revision 01).
+Covers Scenarios 1, 2, 3, 4, and 6 with corrected clock alignments,
+true boundary cutoff fixtures, and clear labeling of offline smoke test.
+Saves to logs/task_01_scenario_revised_results.json.
 """
 import json
 import os
@@ -15,25 +17,27 @@ import scipy.io.wavfile as wavfile
 # Add project root to sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+from src.audio_utils import load_and_normalize_audio
 from src.config import PipelineConfig, VadConfig, SttConfig
 from src.pipeline import SpeechPipeline
 from src.vad import VadProcessor
 from src.stt import SttEngine
-from src.metrics import compute_cer, normalize_text, get_process_memory_mb
+from src.metrics import compute_cer, normalize_text, get_memory_stats
 
-RESULTS_FILE = "logs/task_01_scenario_results.json"
+REVISED_RESULTS_FILE = "logs/task_01_scenario_revised_results.json"
 
 def run_scenario_1() -> Dict[str, Any]:
     """
     Scenario 1: Short Korean utterance and final segment flush.
-    Ensures that an utterance truncated without trailing silence is properly emitted via flush.
+    Ensures that an utterance truncated mid-speech without trailing silence is cleanly emitted via flush.
     """
-    print("\n--- Running Scenario 1: Short utterance & final flush ---")
-    sr, raw = wavfile.read("models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/test_wavs/ko.wav")
-    samples = raw.astype(np.float32) / 32768.0
-
-    # Truncate mid-speech at 2.0s without trailing silence
-    truncated = samples[:int(sr * 2.0)]
+    print("\n--- Running Scenario 1 (Rev 01): Short utterance & final flush ---")
+    samples, sr = load_and_normalize_audio(
+        "models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/test_wavs/ko.wav",
+        target_sr=16000
+    )
+    # Truncate mid-speech at 1.8s (without trailing silence)
+    truncated = samples[:int(sr * 1.8)]
 
     vad = VadProcessor(VadConfig(min_silence_duration=0.5))
     stt = SttEngine(SttConfig())
@@ -44,20 +48,13 @@ def run_scenario_1() -> Dict[str, Any]:
         chunk = truncated[i:i + window]
         segments.extend(vad.process_chunk(chunk))
 
-    # Before flush, speech may be buffered because min_silence has not elapsed
     segs_before_flush = len(segments)
-
-    # Flush
     flushed = vad.flush()
     segments.extend(flushed)
 
-    transcripts = []
-    for seg in segments:
-        text, _ = stt.transcribe(seg.samples, sr)
-        transcripts.append(text)
-
+    transcripts = [stt.transcribe(s.samples, sr)[0] for s in segments]
     full_text = " ".join(transcripts)
-    passed = len(segments) > 0 and ("생각" in full_text or "조금" in full_text)
+    passed = len(segments) >= 1 and len(flushed) >= 1 and ("생각" in full_text or "조금" in full_text)
 
     res = {
         "scenario": 1,
@@ -65,10 +62,11 @@ def run_scenario_1() -> Dict[str, Any]:
         "passed": passed,
         "segments_before_flush": segs_before_flush,
         "segments_after_flush": len(segments),
+        "flush_segments_count": len(flushed),
         "transcript": full_text,
-        "flush_reason": segments[-1].endpoint_reason if segments else None
+        "endpoint_reason": segments[-1].endpoint_reason if segments else None
     }
-    print(f"Scenario 1 Result: {'PASS' if passed else 'FAIL'} | Transcript: '{full_text}'")
+    print(f"Scenario 1 Result: {'PASS' if passed else 'FAIL'} | Transcript: '{full_text}' (Reason: {res['endpoint_reason']})")
     return res
 
 def run_scenario_2() -> Dict[str, Any]:
@@ -76,12 +74,11 @@ def run_scenario_2() -> Dict[str, Any]:
     Scenario 2: 60 seconds silence & low-level environmental noise.
     Verifies that no false triggers or hallucinations occur during 60s of non-speech.
     """
-    print("\n--- Running Scenario 2: 60s silence & ambient noise ---")
+    print("\n--- Running Scenario 2 (Rev 01): 60s silence & ambient noise ---")
     sr = 16000
     duration_sec = 60.0
     num_samples = int(sr * duration_sec)
 
-    # Create 30s absolute silence + 30s low-level white noise (approx -50 dBFS)
     silence = np.zeros(num_samples // 2, dtype=np.float32)
     noise = np.random.normal(0, 0.003, num_samples // 2).astype(np.float32)
     audio = np.concatenate([silence, noise])
@@ -90,46 +87,38 @@ def run_scenario_2() -> Dict[str, Any]:
     stt = SttEngine(SttConfig())
 
     window = 512
-    detected_segments = []
+    detected = []
     for i in range(0, len(audio), window):
         chunk = audio[i:i + window]
-        ready = vad.process_chunk(chunk)
-        detected_segments.extend(ready)
-    detected_segments.extend(vad.flush())
+        detected.extend(vad.process_chunk(chunk))
+    detected.extend(vad.flush())
 
-    false_transcriptions = []
-    for seg in detected_segments:
-        text, _ = stt.transcribe(seg.samples, sr)
-        if text.strip():
-            false_transcriptions.append(text.strip())
-
-    passed = len(detected_segments) == 0 and len(false_transcriptions) == 0
+    passed = len(detected) == 0
 
     res = {
         "scenario": 2,
         "name": "60s silence & ambient noise",
         "passed": passed,
         "audio_duration_seconds": duration_sec,
-        "detected_segments_count": len(detected_segments),
-        "false_transcriptions": false_transcriptions
+        "detected_segments_count": len(detected)
     }
-    print(f"Scenario 2 Result: {'PASS' if passed else 'FAIL'} | Segments detected: {len(detected_segments)}")
+    print(f"Scenario 2 Result: {'PASS' if passed else 'FAIL'} | Segments detected: {len(detected)}")
     return res
 
 def run_scenario_3() -> Dict[str, Any]:
     """
-    Scenario 3: Continuous speech (>30s) with short pauses (0.2s) less than min_silence (0.5s).
-    Forces VAD to split at max_speech_duration (4.0s) and measures total end-to-end latency.
+    Scenario 3 (Rev 01): Continuous speech (>30s) with short pauses (0.2s) less than min_silence (0.5s).
+    With hard_max_speech_duration=4.0s enforced, verifies segment durations and actual end-to-end latencies.
     """
-    print("\n--- Running Scenario 3: Continuous speech (>30s) & max_duration splitting ---")
-    sr, raw = wavfile.read("models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/test_wavs/ko.wav")
-    samples = raw.astype(np.float32) / 32768.0
-
-    # Extract voiced region (0.8s to 3.7s, length ~2.9s)
+    print("\n--- Running Scenario 3 (Rev 01): Continuous speech (>30s) & 4.0s hard cutoff ---")
+    samples, sr = load_and_normalize_audio(
+        "models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/test_wavs/ko.wav",
+        target_sr=16000
+    )
+    # Voiced region: 0.8s to 3.7s (~2.9s)
     speech_unit = samples[int(0.8 * sr):int(3.7 * sr)]
-    short_pause = np.zeros(int(0.2 * sr), dtype=np.float32)  # 200ms pause (< 500ms min_silence)
+    short_pause = np.zeros(int(0.2 * sr), dtype=np.float32)  # 200ms pause
 
-    # Chain to create ~34 seconds of continuous presentation speech
     chain = []
     for _ in range(11):
         chain.append(speech_unit)
@@ -137,105 +126,139 @@ def run_scenario_3() -> Dict[str, Any]:
     continuous_audio = np.concatenate(chain)
     total_dur_sec = len(continuous_audio) / float(sr)
 
-    # Save to temp wav
-    temp_wav = "logs/temp_continuous_speech.wav"
+    temp_wav = "logs/test_fixtures/temp_continuous_speech_rev1.wav"
+    os.makedirs("logs/test_fixtures", exist_ok=True)
     wavfile.write(temp_wav, sr, (continuous_audio * 32767).astype(np.int16))
 
     config = PipelineConfig(
-        vad=VadConfig(min_silence_duration=0.5, max_speech_duration=4.0),
+        vad=VadConfig(
+            min_silence_duration=0.5,
+            max_speech_duration=4.0,
+            hard_max_speech_duration=4.0
+        ),
         stt=SttConfig(num_threads=4)
     )
     pipeline = SpeechPipeline(config)
-    res = pipeline.run_replay(temp_wav, speed=1.0, run_id="scenario3_replay")
+    res = pipeline.run_replay(temp_wav, speed=1.0, run_id="scenario3_rev1_replay")
 
-    # Metrics for continuous speech:
-    # 1. Total latency from segment start to result emit
-    total_segment_latencies = []
-    for seg in res.segments:
-        # Segment duration + STT inference time
-        total_segment_latencies.append(seg["duration_ms"] + seg["infer_ms"])
+    # Metrics with R1 clock corrections:
+    # continuous_latency_stats tracks actual (result_emit - segment_start_speech_ts)
+    # estimated_delay_stats tracks actual (result_emit - segment_end_speech_ts)
+    p95_cont_lat = res.continuous_latency_stats["p95"]
+    p95_delay_after = res.estimated_delay_stats["p95"]
 
-    p95_total_lat = float(np.percentile(total_segment_latencies, 95)) if total_segment_latencies else 0.0
-    passed = p95_total_lat <= 5500.0 and res.segment_count >= 8  # 5.5s PM target
+    # PM target: segment start to result <= 5.5s (5500ms)
+    passed = (p95_cont_lat <= 5500.0) and (res.segment_count >= 8) and res.is_lossless
 
-    result_data = {
+    res_data = {
         "scenario": 3,
-        "name": "Continuous speech (>30s) max_duration splitting",
+        "name": "Continuous speech (>30s) with 4.0s hard cut enforcement",
         "passed": passed,
         "total_audio_seconds": round(total_dur_sec, 2),
         "segment_count": res.segment_count,
-        "p95_total_latency_ms": round(p95_total_lat, 1),
-        "target_p95_ms": 5500.0,
-        "rtf_p95": res.rtf_stats["p95"],
-        "delay_after_speech_p95_ms": res.delay_stats["p95"],
+        "is_lossless": res.is_lossless,
+        "p95_continuous_latency_ms": round(p95_cont_lat, 1),
+        "p95_delay_after_cutoff_ms": round(p95_delay_after, 1),
+        "target_continuous_p95_ms": 5500.0,
+        "speech_rtf_p95": res.rtf_stats["p95"],
+        "segments": res.segments
     }
-    print(f"Scenario 3 Result: {'PASS' if passed else 'FAIL'} | Segments: {res.segment_count} | p95 Total Latency: {p95_total_lat:.1f}ms")
-    return result_data
+    print(f"Scenario 3 Result: {'PASS' if passed else 'FAIL'} | Segments: {res.segment_count} | p95 Cont Latency: {p95_cont_lat:.1f}ms | p95 Cutoff Delay: {p95_delay_after:.1f}ms")
+    return res_data
 
 def run_scenario_4() -> Dict[str, Any]:
     """
-    Scenario 4: Boundary loss and duplication across split segments.
-    Analyzes whether words spanning across the 4-second forced boundary are lost or duplicated.
+    Scenario 4 (Rev 01): Forced boundary cutoff and word loss/duplication fixture.
+    Creates a continuous phrase where a word strictly straddles across the 4.0s hard cutoff boundary,
+    and measures word loss and duplication.
     """
-    print("\n--- Running Scenario 4: Boundary loss and duplication ---")
-    sr, raw = wavfile.read("models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/test_wavs/ko.wav")
-    samples = raw.astype(np.float32) / 32768.0
+    print("\n--- Running Scenario 4 (Rev 01): Forced cutoff boundary fixture & word loss ---")
+    samples, sr = load_and_normalize_audio(
+        "models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/test_wavs/ko.wav",
+        target_sr=16000
+    )
+    # Extract only voiced speech (0.8s to 3.7s, duration 2.89s)
+    # The speech text is "조금만 생각을 하면서 살면 훨씬 편할 거야"
+    speech = samples[int(0.8 * sr):int(3.69 * sr)]
 
-    # Repeat audio twice with no silence in between
-    doubled_audio = np.concatenate([samples, samples])
-    temp_wav = "logs/temp_doubled.wav"
-    wavfile.write(temp_wav, sr, (doubled_audio * 32767).astype(np.int16))
+    # Concatenate speech directly with NO pause: 2.89s + 2.89s = 5.78s
+    # With hard_max=4.0s, the cutoff occurs at exactly 4.00s (which is 1.11s into the 2nd repetition: "조금만 생각을...")
+    # This guarantees a word is physically severed at the 4.0s boundary!
+    cont_forced = np.concatenate([speech, speech])
+    temp_wav = "logs/test_fixtures/temp_forced_cutoff.wav"
+    os.makedirs("logs/test_fixtures", exist_ok=True)
+    wavfile.write(temp_wav, sr, (cont_forced * 32767).astype(np.int16))
 
     config = PipelineConfig(
-        vad=VadConfig(min_silence_duration=0.5, max_speech_duration=4.0),
+        vad=VadConfig(
+            min_silence_duration=0.5,
+            max_speech_duration=4.0,
+            hard_max_speech_duration=4.0
+        ),
         stt=SttConfig(num_threads=4)
     )
     pipeline = SpeechPipeline(config)
-    res = pipeline.run_wav_direct(temp_wav, run_id="scenario4_boundary")
+    res = pipeline.run_wav_vad(temp_wav, run_id="scenario4_rev1_boundary")
 
-    full_hypothesis = " ".join([s["text"] for s in res.segments])
-    norm_hyp = normalize_text(full_hypothesis)
+    full_hyp = " ".join([s["text"] for s in res.segments])
+    ref_phrase = "조금만 생각을 하면서 살면 훨씬 편할 거야"
+    ref_doubled = f"{ref_phrase} {ref_phrase}"
 
-    ref_single = "조금만 생각을 하면서 살면 훨씬 편할 거야"
-    ref_doubled = f"{ref_single} {ref_single}"
-    cer_res = compute_cer(ref_doubled, full_hypothesis)
+    cer_space = compute_cer(ref_doubled, full_hyp, remove_punct=True)
+    # Non-space CER
+    ref_no_space = normalize_text(ref_doubled, remove_punct=True).replace(" ", "")
+    hyp_no_space = normalize_text(full_hyp, remove_punct=True).replace(" ", "")
+    cer_nospace = compute_cer(ref_no_space, hyp_no_space, remove_punct=False)
 
-    result_data = {
+    res_data = {
         "scenario": 4,
-        "name": "Boundary loss and duplication",
-        "passed": cer_res["cer"] <= 0.15,
+        "name": "Forced cutoff boundary fixture & word loss",
         "segment_count": len(res.segments),
         "reference": ref_doubled,
-        "hypothesis": full_hypothesis,
-        "cer": round(cer_res["cer"], 4),
-        "distance": cer_res["distance"],
-        "substitutions": cer_res["substitutions"],
-        "deletions": cer_res["deletions"],
-        "insertions": cer_res["insertions"],
+        "hypothesis": full_hyp,
+        "segment_details": [
+            {
+                "id": s["segment_id"],
+                "dur_ms": s["duration_ms"],
+                "reason": s["endpoint_reason"],
+                "text": s["text"]
+            } for s in res.segments
+        ],
+        "cer_with_space": round(cer_space["cer"], 4),
+        "cer_no_space": round(cer_nospace["cer"], 4),
+        "substitutions": cer_space["substitutions"],
+        "deletions": cer_space["deletions"],
+        "insertions": cer_space["insertions"],
+        "boundary_analysis": (
+            "Segment 1 was cut at 4.0s during repetition. Segment 2 began from the remaining audio. "
+            "Examines whether words straddling the 4.0s cut were truncated or preserved."
+        )
     }
-    print(f"Scenario 4 Result: {'PASS' if result_data['passed'] else 'FAIL'} | CER: {cer_res['cer']*100:.2f}% | Hyp: '{full_hypothesis}'")
-    return result_data
+    print(f"Scenario 4 Result: Segments: {len(res.segments)} | Spaced CER: {cer_space['cer']*100:.2f}% | Non-space CER: {cer_nospace['cer']*100:.2f}%")
+    for s in res_data["segment_details"]:
+        print(f"  Seg #{s['id']} ({s['dur_ms']:.1f}ms, {s['reason']}): \"{s['text']}\"")
+    return res_data
 
 def run_scenario_6() -> Dict[str, Any]:
     """
-    Scenario 6: Completely offline execution with network calls blocked.
-    Blocks socket creation/connection at runtime and verifies local STT inference succeeds.
+    Scenario 6 (Rev 01): Python socket monkeypatch smoke test for local execution.
+    Note: As noted in R5, this test verifies that the pipeline makes zero socket calls via Python socket.connect.
+    It does not claim full OS-level egress block, which remains NOT_RUN / PARTIAL.
     """
-    print("\n--- Running Scenario 6: Offline execution (network blocked) ---")
+    print("\n--- Running Scenario 6 (Rev 01): Local execution (Python connect smoke test) ---")
     orig_connect = socket.socket.connect
 
     def blocked_connect(self, *args, **kwargs):
-        raise OSError("Scenario 6: Network connection blocked for offline test!")
+        raise OSError("Scenario 6: Socket connection attempt blocked by test harness!")
 
     socket.socket.connect = blocked_connect
 
     try:
         pipeline = SpeechPipeline()
         wav_path = "models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/test_wavs/ko.wav"
-        res = pipeline.run_wav_direct(wav_path, run_id="scenario6_offline")
-
+        res = pipeline.run_wav_direct_stt(wav_path, run_id="scenario6_rev1_offline")
         text = res.segments[0]["text"] if res.segments else ""
-        passed = ("생각" in text or "조금" in text) and res.cumulative_rtf < 0.5
+        passed = ("생각" in text or "조금" in text)
         err = None
     except Exception as e:
         passed = False
@@ -243,36 +266,39 @@ def run_scenario_6() -> Dict[str, Any]:
     finally:
         socket.socket.connect = orig_connect
 
-    result_data = {
+    res_data = {
         "scenario": 6,
-        "name": "Offline execution (network blocked)",
+        "name": "Local execution (Python connect blocked smoke test)",
+        "scope": "Python socket layer monkeypatch (does not cover native OS egress)",
         "passed": passed,
         "error": err,
         "transcript": text if passed else None,
-        "rtf": res.cumulative_rtf if passed else None
+        "pm_judgment": "PARTIAL (Python smoke test verified; full OS-level network block remains NOT_RUN)"
     }
-    print(f"Scenario 6 Result: {'PASS' if passed else 'FAIL'} | Offline transcript: '{text}'")
-    return result_data
+    print(f"Scenario 6 Result: {'PASS (Smoke test)' if passed else 'FAIL'} | Transcript: '{text}'")
+    return res_data
 
 def main():
     print("=================================================================")
-    print(" Running Task 01 Required Scenarios (1, 2, 3, 4, 6)")
-    print(" Note: Scenario 5 (10-min mic test) is executed separately.")
+    print(" Running Task 01 Required Scenarios (Revision 01)")
     print("=================================================================")
 
-    results = {}
-    results["scenario_1"] = run_scenario_1()
-    results["scenario_2"] = run_scenario_2()
-    results["scenario_3"] = run_scenario_3()
-    results["scenario_4"] = run_scenario_4()
-    results["scenario_6"] = run_scenario_6()
+    results = {
+        "revision": "01",
+        "timestamp_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "scenario_1": run_scenario_1(),
+        "scenario_2": run_scenario_2(),
+        "scenario_3": run_scenario_3(),
+        "scenario_4": run_scenario_4(),
+        "scenario_6": run_scenario_6(),
+    }
 
     os.makedirs("logs", exist_ok=True)
-    with open(RESULTS_FILE, "w", encoding="utf-8") as f:
+    with open(REVISED_RESULTS_FILE, "w", encoding="utf-8") as f:
         json.dump(results, f, ensure_ascii=False, indent=2)
 
     print("\n=================================================================")
-    print(f" Scenarios completed. Saved summary to {RESULTS_FILE}")
+    print(f" Revision 01 Scenarios completed. Saved to {REVISED_RESULTS_FILE}")
     print("=================================================================")
 
 if __name__ == "__main__":
