@@ -90,6 +90,14 @@ class SpeechPipeline:
 
         self.vad = VadProcessor(self.config.vad)
         self.stt = SttEngine(self.config.stt)
+        self._active_workers: List[threading.Thread] = []
+        self._worker_lock = threading.Lock()
+
+    def has_running_workers(self) -> bool:
+        """Check if any worker threads from prior runs are still alive."""
+        with self._worker_lock:
+            self._active_workers = [t for t in self._active_workers if t.is_alive()]
+            return len(self._active_workers) > 0
 
     def run_wav_direct_stt(self, wav_path: str, run_id: Optional[str] = None) -> PipelineResult:
         """
@@ -252,6 +260,7 @@ class SpeechPipeline:
                 "duration_ms": seg.duration_ms,
                 "text": text,
                 "rtf": rtf,
+                "queue_wait_ms": 0.0,
                 "infer_ms": infer_ms,
                 "endpoint_reason": seg.endpoint_reason
             })
@@ -312,6 +321,9 @@ class SpeechPipeline:
         Feeds audio chunks at exact real-time speed (1.0x) to evaluate queue dynamics and post-speech latency.
         Strict sentinel-based termination with abort_event guarantees zero race conditions or hangs.
         """
+        if self.has_running_workers():
+            raise RuntimeError("Cannot start pipeline run while previous workers are still active")
+
         run_id = run_id or f"replay_{uuid.uuid4().hex[:8]}"
         samples, sr = load_and_normalize_audio(wav_path, target_sr=16000)
         total_audio_dur = len(samples) / float(sr)
@@ -455,13 +467,21 @@ class SpeechPipeline:
                         while time.perf_counter() - sleep_start < artificial_stt_delay_sec:
                             if abort_event.is_set():
                                 break
-                            time.sleep(min(0.05, artificial_stt_delay_sec - (time.perf_counter() - sleep_start)))
+                            rem = artificial_stt_delay_sec - (time.perf_counter() - sleep_start)
+                            if rem <= 0:
+                                break
+                            time.sleep(min(0.05, rem))
 
                     if abort_event.is_set():
                         segment_queue.task_done()
                         break
 
-                    text, infer_ms = self.stt.transcribe(seg.samples, 16000)
+                    text, infer_ms = self.stt.transcribe(seg.samples, 16000, abort_event=abort_event)
+
+                    if abort_event.is_set():
+                        segment_queue.task_done()
+                        break
+
                     stt_end_ts = time.perf_counter()
                     result_emit_ts = stt_end_ts
 
@@ -511,6 +531,7 @@ class SpeechPipeline:
                         "duration_ms": seg.duration_ms,
                         "text": text,
                         "rtf": rtf,
+                        "queue_wait_ms": queue_wait_ms,
                         "delay_after_speech_ms": delay_after_speech_ms,
                         "continuous_latency_ms": latency_from_start_ms,
                         "infer_ms": infer_ms,
@@ -523,6 +544,8 @@ class SpeechPipeline:
 
         t_vad = threading.Thread(target=vad_worker, daemon=True)
         t_stt = threading.Thread(target=stt_worker, daemon=True)
+        with self._worker_lock:
+            self._active_workers.extend([t_vad, t_stt])
         t_vad.start()
         t_stt.start()
 
@@ -588,7 +611,8 @@ class SpeechPipeline:
                         except queue.Full:
                             continue
             finally:
-                # B [P1] Clean shutdown guarantee: drain queues on abort and join workers
+                # F2 [P1] Clean shutdown guarantee:
+                # If an error/abort occurred during execution, drain queues to unblock workers
                 if abort_event.is_set():
                     while not audio_queue.empty():
                         try:
@@ -606,9 +630,33 @@ class SpeechPipeline:
                 t_vad.join(timeout=2.0)
                 t_stt.join(timeout=2.0)
 
-            if t_vad.is_alive():
+                vad_timed_out = t_vad.is_alive()
+                stt_timed_out = t_stt.is_alive()
+
+                # If workers timed out, now trigger abort and drain
+                if vad_timed_out or stt_timed_out:
+                    abort_event.set()
+                    while not audio_queue.empty():
+                        try:
+                            audio_queue.get_nowait()
+                            audio_queue.task_done()
+                        except Exception:
+                            break
+                    while not segment_queue.empty():
+                        try:
+                            segment_queue.get_nowait()
+                            segment_queue.task_done()
+                        except Exception:
+                            break
+                    t_vad.join(timeout=1.0)
+                    t_stt.join(timeout=1.0)
+
+                with self._worker_lock:
+                    self._active_workers = [t for t in self._active_workers if t.is_alive()]
+
+            if vad_timed_out:
                 raise TimeoutError("VAD worker failed to terminate within 2.0s")
-            if t_stt.is_alive():
+            if stt_timed_out:
                 raise TimeoutError("STT worker failed to terminate within 2.0s")
 
             if vad_exception:
@@ -659,7 +707,8 @@ class SpeechPipeline:
                 segments=segment_results
             )
         finally:
-            logger.close()
+            if not (t_vad.is_alive() or t_stt.is_alive()):
+                logger.close()
 
 
 
@@ -675,6 +724,9 @@ class SpeechPipeline:
         downsamples via resample_poly in VAD worker thread,
         and uses abort_event and timeouts for guaranteed clean shutdown under errors.
         """
+        if self.has_running_workers():
+            raise RuntimeError("Cannot start pipeline run while previous workers are still active")
+
         run_id = run_id or f"mic_{uuid.uuid4().hex[:8]}"
         in_rate = self.config.audio.device_sample_rate   # 48000
         out_rate = self.config.audio.target_sample_rate  # 16000
@@ -864,7 +916,16 @@ class SpeechPipeline:
                     stt_start_ts = time.perf_counter()
                     queue_wait_ms = (stt_start_ts - seg.ready_ts) * 1000.0
 
-                    text, infer_ms = self.stt.transcribe(seg.samples, 16000)
+                    if abort_event.is_set():
+                        segment_queue.task_done()
+                        break
+
+                    text, infer_ms = self.stt.transcribe(seg.samples, 16000, abort_event=abort_event)
+
+                    if abort_event.is_set():
+                        segment_queue.task_done()
+                        break
+
                     stt_end_ts = time.perf_counter()
                     result_emit_ts = stt_end_ts
 
@@ -911,6 +972,7 @@ class SpeechPipeline:
                         "duration_ms": seg.duration_ms,
                         "text": text,
                         "rtf": rtf,
+                        "queue_wait_ms": queue_wait_ms,
                         "delay_after_speech_ms": delay_after_speech_ms,
                         "continuous_latency_ms": latency_from_start_ms,
                         "infer_ms": infer_ms,
@@ -923,6 +985,8 @@ class SpeechPipeline:
 
         t_vad = threading.Thread(target=vad_worker, daemon=True)
         t_stt = threading.Thread(target=stt_worker, daemon=True)
+        with self._worker_lock:
+            self._active_workers.extend([t_vad, t_stt])
         t_vad.start()
         t_stt.start()
 
@@ -963,10 +1027,8 @@ class SpeechPipeline:
                                   f"CurRSS: {mem['current_rss_mb']:5.1f}MB | PeakRSS: {mem['peak_rss_mb']:5.1f}MB | "
                                   f"Overruns: {overrun_count} | Drops: {dropped_audio_chunks} | Segments: {len(segment_results)}")
                             last_snapshot_time = now
-            except Exception as e:
-                abort_event.set()
-                raise
-            finally:
+
+                # InputStream completed: send sentinel to VAD worker unless aborted
                 if not abort_event.is_set():
                     sentinel_deadline = time.perf_counter() + 2.0
                     while not abort_event.is_set() and time.perf_counter() < sentinel_deadline:
@@ -975,7 +1037,11 @@ class SpeechPipeline:
                             break
                         except queue.Full:
                             continue
-                else:
+            except Exception as e:
+                abort_event.set()
+                raise
+            finally:
+                if abort_event.is_set():
                     while not audio_queue.empty():
                         try:
                             audio_queue.get_nowait()
@@ -992,9 +1058,33 @@ class SpeechPipeline:
                 t_vad.join(timeout=2.0)
                 t_stt.join(timeout=2.0)
 
-            if t_vad.is_alive():
+                vad_timed_out = t_vad.is_alive()
+                stt_timed_out = t_stt.is_alive()
+
+                # If workers timed out, now trigger abort and drain
+                if vad_timed_out or stt_timed_out:
+                    abort_event.set()
+                    while not audio_queue.empty():
+                        try:
+                            audio_queue.get_nowait()
+                            audio_queue.task_done()
+                        except Exception:
+                            break
+                    while not segment_queue.empty():
+                        try:
+                            segment_queue.get_nowait()
+                            segment_queue.task_done()
+                        except Exception:
+                            break
+                    t_vad.join(timeout=1.0)
+                    t_stt.join(timeout=1.0)
+
+                with self._worker_lock:
+                    self._active_workers = [t for t in self._active_workers if t.is_alive()]
+
+            if vad_timed_out:
                 raise TimeoutError("VAD worker failed to terminate within 2.0s")
-            if t_stt.is_alive():
+            if stt_timed_out:
                 raise TimeoutError("STT worker failed to terminate within 2.0s")
 
             if vad_exception:
@@ -1048,6 +1138,7 @@ class SpeechPipeline:
                 periodic_snapshots=periodic_snapshots
             )
         finally:
-            logger.close()
+            if not (t_vad.is_alive() or t_stt.is_alive()):
+                logger.close()
 
 

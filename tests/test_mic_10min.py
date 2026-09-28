@@ -23,11 +23,16 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from src.config import PipelineConfig, VadConfig, SttConfig, AudioConfig, QueueConfig
 from src.pipeline import SpeechPipeline, get_git_revision
 
-OUTPUT_JSON = "logs/task_01_mic_10min_rev2_result.json"
+REQUIRED_STABILITY_SECONDS = 600.0
 
 def run_mic_benchmark(duration_seconds: float = 600.0) -> Dict[str, Any]:
+    is_full_10min_gate = (duration_seconds >= REQUIRED_STABILITY_SECONDS)
+    test_type = "10min_stability_gate" if is_full_10min_gate else "smoke_test"
+    output_json = "logs/task_01_mic_10min_rev3_result.json" if is_full_10min_gate else "logs/task_01_mic_smoke_rev3_result.json"
+
     print("=================================================================")
-    print(f" Starting Scenario 5 (Revision 02): Unified SpeechPipeline Mic ({duration_seconds}s)")
+    print(f" Starting Scenario 5 (Revision 03): Unified SpeechPipeline Mic ({duration_seconds}s)")
+    print(f" Test Type: {test_type} | Output: {output_json}")
     print("=================================================================")
 
     config = PipelineConfig(
@@ -44,7 +49,7 @@ def run_mic_benchmark(duration_seconds: float = 600.0) -> Dict[str, Any]:
     pipeline = SpeechPipeline(config)
     pipeline.stt.warm_up(0.5)
 
-    run_id = f"mic10m_rev2_{int(time.time())}"
+    run_id = f"mic_{'10m' if is_full_10min_gate else 'smoke'}_rev3_{int(time.time())}"
 
     # Run the unified pipeline
     res = pipeline.run_mic(
@@ -53,17 +58,27 @@ def run_mic_benchmark(duration_seconds: float = 600.0) -> Dict[str, Any]:
         snapshot_interval_sec=60.0
     )
 
-    # Revision 02 Evaluation:
-    # If 0 speech segments are detected during test, latency drift cannot be validated,
-    # so speech performance judgment MUST be NOT_RUN (as required by PM review).
-    if res.segment_count == 0:
+    # Revision 03 Evaluation:
+    # F3 [P2]: Strictly verify per-segment queue_wait_ms. Do not default to 0.0.
+    missing_queue_wait = any("queue_wait_ms" not in s for s in res.segments)
+
+    if missing_queue_wait:
+        queue_wait_valid = False
+        trend_drift = 0.0
+        judgment = "FAIL (Validation Error: queue_wait_ms field missing in segment results)"
+        passed = False
+    elif res.segment_count == 0:
+        queue_wait_valid = True
+        trend_drift = 0.0
         judgment = "NOT_RUN (No real speech utterances detected; latency drift & speech RTF cannot be validated on silence alone)"
         passed = False
     else:
-        # Check queue wait trend across segments
-        queue_waits = [s.get("queue_wait_ms", 0.0) for s in res.segments]
+        queue_wait_valid = True
+        queue_waits = [s["queue_wait_ms"] for s in res.segments]
         trend_drift = (queue_waits[-1] - queue_waits[0]) if len(queue_waits) >= 2 else 0.0
-        passed = (
+        has_runaway_queue = trend_drift > 200.0
+
+        smoke_passed = (
             res.is_lossless and
             res.overrun_count == 0 and
             res.dropped_audio_chunks == 0 and
@@ -71,22 +86,36 @@ def run_mic_benchmark(duration_seconds: float = 600.0) -> Dict[str, Any]:
             res.status == "OK" and
             res.rtf_stats["p95"] <= 0.5 and
             res.estimated_delay_stats["p95"] <= 1500.0 and
-            trend_drift < 200.0
+            not has_runaway_queue
         )
-        judgment = "PASS" if passed else "FAIL"
+
+        if not is_full_10min_gate:
+            passed = smoke_passed
+            judgment = "SMOKE_PASS (600s stability requirement remains NOT_RUN/PARTIAL)" if smoke_passed else "FAIL"
+        else:
+            passed = smoke_passed
+            judgment = "PASS" if passed else "FAIL"
+
+    gate_10min_status = "PASS" if (is_full_10min_gate and passed) else (
+        "PARTIAL (Short smoke test executed; 600s stability requirement remains NOT_RUN/PARTIAL)"
+        if not is_full_10min_gate else "FAIL"
+    )
 
     summary = {
         "scenario": 5,
-        "revision": "02",
+        "revision": "03",
         "git_revision": get_git_revision(),
-        "name": "10-minute Live Microphone Stability Test (Unified Pipeline)",
+        "name": f"Live Microphone {'10-minute Stability Gate' if is_full_10min_gate else 'Smoke Test'} (Unified Pipeline)",
+        "test_type": test_type,
+        "is_full_10min_gate": is_full_10min_gate,
+        "gate_10min_status": gate_10min_status,
+        "gate_10min_passed": (is_full_10min_gate and passed),
         "judgment": judgment,
         "passed": passed,
         "run_id": res.run_id,
         "target_duration_seconds": duration_seconds,
         "total_audio_captured_seconds": round(res.total_audio_seconds, 2),
         "total_speech_seconds": round(res.total_speech_seconds, 2),
-
         "total_inference_seconds": round(res.total_inference_seconds, 2),
         "speech_rtf": round(res.speech_rtf, 4),
         "throughput_rtf": round(res.throughput_rtf, 4),
@@ -97,6 +126,8 @@ def run_mic_benchmark(duration_seconds: float = 600.0) -> Dict[str, Any]:
         "dropped_segments": res.dropped_segments,
         "dropped_items": res.dropped_items,
         "total_segments_detected": res.segment_count,
+        "queue_wait_trend_drift_ms": round(trend_drift, 2) if queue_wait_valid else None,
+        "queue_wait_valid": queue_wait_valid,
         "current_rss_mb": res.current_rss_mb,
         "peak_rss_mb": res.peak_rss_mb,
         "rtf_stats": res.rtf_stats,
@@ -108,14 +139,15 @@ def run_mic_benchmark(duration_seconds: float = 600.0) -> Dict[str, Any]:
     }
 
     os.makedirs("logs", exist_ok=True)
-    with open(OUTPUT_JSON, "w", encoding="utf-8") as f:
+    with open(output_json, "w", encoding="utf-8") as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)
 
     print("=================================================================")
-    print(f" Scenario 5 Result: {'PASS' if passed else 'FAIL'}")
+    print(f" Scenario 5 Result: {judgment}")
     print(f" Captured: {res.total_audio_seconds:.2f}s | Overruns: {res.overrun_count} | Chunks Dropped: {res.dropped_audio_chunks} | Segments Dropped: {res.dropped_segments}")
     print(f" Memory: Current RSS {res.current_rss_mb:.1f} MB | Peak RSS {res.peak_rss_mb:.1f} MB")
-    print(f" Summary saved to {OUTPUT_JSON}")
+    print(f" 10-Minute Gate Status: {gate_10min_status}")
+    print(f" Summary saved to {output_json}")
     print("=================================================================")
     return summary
 

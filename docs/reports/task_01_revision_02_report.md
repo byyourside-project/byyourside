@@ -1,10 +1,14 @@
 # Task 01 Revision 02 — 샘플 보존 및 오류 종료 보완 보고서
 
+> [!NOTE] 정정 안내 (2026-09-28 Revision 03 반영)
+> 본 보고서(Revision 02)에서 언급된 하드 컷 후 166ms 간극 누락, timeout 후 worker/logger 수명 주기, 누락된 `queue_wait_ms` 기본값 계산, 60초 마이크 시험의 10분 Gate 통과 표기에 대한 PM 검수 지적 사항(F1~F4)은 최신 보고서인 [docs/reports/task_01_revision_03_report.md](file:///Users/jwlee/study1/byyourside/docs/reports/task_01_revision_03_report.md)에서 정정 및 검증되었습니다. 본 보고서의 과거 측정값과 원시 로그는 변경 없이 보존됩니다.
+
 - 작성일: 2026-09-28
 - 작업 ID: Task 01 Revision 02 (샘플 보존, 오류 종료, 시간축 보존, 지연 지표 정밀화)
 - 대상 커밋: `a1b4c20` (및 후속 수정)
 - 담당: Gemini 개발자 / 검수: 사용자와 PM
 - 관련 문서:
+  - 최신 보고서: [docs/reports/task_01_revision_03_report.md](file:///Users/jwlee/study1/byyourside/docs/reports/task_01_revision_03_report.md)
   - 검수 지적서: [docs/reports/task_01_revision_01_pm_review.md](file:///Users/jwlee/study1/byyourside/docs/reports/task_01_revision_01_pm_review.md)
   - 지시서: [docs/pm/task_01_revision_02.md](file:///Users/jwlee/study1/byyourside/docs/pm/task_01_revision_02.md)
   - 이전 보고서: [docs/reports/task_01_revision_01_report.md](file:///Users/jwlee/study1/byyourside/docs/reports/task_01_revision_01_report.md)

@@ -35,6 +35,8 @@ class VadProcessor:
         self.samples_fed = 0
         self.vad_stream_offset = 0
         self.current_speech_start_sample: Optional[int] = None
+        self.carryover_samples: np.ndarray = np.array([], dtype=np.float32)
+        self.carryover_start_sample: Optional[int] = None
 
     def _init_vad(self) -> None:
         vad_model_config = sherpa_onnx.VadModelConfig()
@@ -82,6 +84,8 @@ class VadProcessor:
                 # 2. Resynchronize samples_fed and vad_stream_offset
                 self.samples_fed = stream_sample_idx_start
                 self.vad_stream_offset = stream_sample_idx_start
+                self.carryover_samples = np.array([], dtype=np.float32)
+                self.carryover_start_sample = None
                 self.current_speech_start_sample = None
                 # Re-initialize VAD internal circular buffer state after gap
                 self._init_vad()
@@ -104,16 +108,15 @@ class VadProcessor:
                     self.current_speech_start_sample = chunk_start_sample
                 else:
                     if self.config.hard_max_speech_duration is not None:
-                        curr_dur_sec = (self.samples_fed - self.current_speech_start_sample) / float(self.config.sample_rate)
-                        if curr_dur_sec >= self.config.hard_max_speech_duration:
-                            # Force cut at hard limit
+                        carryover_len = len(self.carryover_samples)
+                        eff_dur_sec = (self.samples_fed - self.current_speech_start_sample + carryover_len) / float(self.config.sample_rate)
+                        if eff_dur_sec >= self.config.hard_max_speech_duration:
+                            # Force cut at hard limit without reinitializing VAD (preserves detector state)
                             self.vad.flush()
                             while not self.vad.empty():
                                 segs = self._pop_segments_with_preservation(endpoint_override="hard_max_duration")
                                 ready_segments.extend(segs)
-                            self.current_speech_start_sample = None
-                            self.vad_stream_offset = self.samples_fed
-                            self._init_vad()
+                            self.current_speech_start_sample = self.samples_fed
                             continue
 
             else:
@@ -129,38 +132,50 @@ class VadProcessor:
     def _pop_segments_with_preservation(self, endpoint_override: Optional[str] = None) -> List[Segment]:
         """
         Pop front segment from VAD.
-        A [P1] FIX: If segment exceeds hard_max_speech_duration, splits it into
-        primary segment + carryover segment(s).
-        GUARANTEES 100% SAMPLE PRESERVATION (zero samples discarded).
+        F1 [P1] FIX:
+        - Merges with any pending carryover from a previous cut.
+        - Emits segments of up to hard_max_speech_duration.
+        - Preserves remaining continuation samples in self.carryover_samples to merge
+          seamlessly into the next speech segment (no 166ms re-detection drop, no isolated "." stubs).
+        - GUARANTEES 100% SAMPLE PRESERVATION (zero samples discarded across cuts).
         """
         raw_seg = self.vad.front
         all_samples = np.array(raw_seg.samples, dtype=np.float32)
-        base_start_sample = self.vad_stream_offset + raw_seg.start
+        raw_start_sample = self.vad_stream_offset + raw_seg.start
         self.vad.pop()
 
         if len(all_samples) == 0:
             return []
 
+        # Merge with pending carryover from previous cut if present
+        if len(self.carryover_samples) > 0:
+            comb_samples = np.concatenate([self.carryover_samples, all_samples])
+            comb_start_sample = self.carryover_start_sample
+            self.carryover_samples = np.array([], dtype=np.float32)
+            self.carryover_start_sample = None
+        else:
+            comb_samples = all_samples
+            comb_start_sample = raw_start_sample
+
         produced_segments: List[Segment] = []
         max_allowed_samples = int(self.config.hard_max_speech_duration * self.config.sample_rate) if self.config.hard_max_speech_duration else None
 
         # Check if splitting is necessary
-        if max_allowed_samples and len(all_samples) > max_allowed_samples:
+        if max_allowed_samples and len(comb_samples) > max_allowed_samples:
             offset = 0
             is_first = True
-            while offset < len(all_samples):
-                chunk_len = min(max_allowed_samples, len(all_samples) - offset)
-                seg_samples = all_samples[offset:offset + chunk_len]
-                seg_start_sample = base_start_sample + offset
-                seg_end_sample = seg_start_sample + chunk_len
+            while (len(comb_samples) - offset) > max_allowed_samples:
+                seg_samples = comb_samples[offset:offset + max_allowed_samples]
+                seg_start_sample = comb_start_sample + offset
+                seg_end_sample = seg_start_sample + max_allowed_samples
 
                 self.segment_counter += 1
-                reason = "hard_max_duration" if is_first else "hard_cut_continuation"
+                reason = endpoint_override or ("hard_max_duration" if is_first else "hard_cut_continuation")
                 is_first = False
 
                 start_ms = (seg_start_sample / float(self.config.sample_rate)) * 1000.0
                 end_ms = (seg_end_sample / float(self.config.sample_rate)) * 1000.0
-                dur_ms = (chunk_len / float(self.config.sample_rate)) * 1000.0
+                dur_ms = (max_allowed_samples / float(self.config.sample_rate)) * 1000.0
 
                 produced_segments.append(Segment(
                     segment_id=self.segment_counter,
@@ -173,13 +188,19 @@ class VadProcessor:
                     endpoint_reason=reason,
                     ready_ts=time.perf_counter()
                 ))
-                offset += chunk_len
+                offset += max_allowed_samples
+
+            # Remainder is saved to carryover for seamless merge with next speech segment
+            rem_len = len(comb_samples) - offset
+            if rem_len > 0:
+                self.carryover_samples = comb_samples[offset:]
+                self.carryover_start_sample = comb_start_sample + offset
         else:
             self.segment_counter += 1
-            seg_len = len(all_samples)
-            seg_end_sample = base_start_sample + seg_len
+            seg_len = len(comb_samples)
+            seg_end_sample = comb_start_sample + seg_len
 
-            start_ms = (base_start_sample / float(self.config.sample_rate)) * 1000.0
+            start_ms = (comb_start_sample / float(self.config.sample_rate)) * 1000.0
             end_ms = (seg_end_sample / float(self.config.sample_rate)) * 1000.0
             dur_ms = (seg_len / float(self.config.sample_rate)) * 1000.0
 
@@ -194,8 +215,8 @@ class VadProcessor:
 
             produced_segments.append(Segment(
                 segment_id=self.segment_counter,
-                samples=all_samples,
-                start_sample=base_start_sample,
+                samples=comb_samples,
+                start_sample=comb_start_sample,
                 end_sample=seg_end_sample,
                 start_ms=start_ms,
                 end_ms=end_ms,
@@ -213,6 +234,31 @@ class VadProcessor:
         while not self.vad.empty():
             segs = self._pop_segments_with_preservation(endpoint_override=endpoint_override)
             ready_segments.extend(segs)
+
+        # If any carryover remains after vad.flush(), emit it as a final segment
+        if len(self.carryover_samples) > 0:
+            self.segment_counter += 1
+            seg_len = len(self.carryover_samples)
+            seg_start_sample = self.carryover_start_sample
+            seg_end_sample = seg_start_sample + seg_len
+            start_ms = (seg_start_sample / float(self.config.sample_rate)) * 1000.0
+            end_ms = (seg_end_sample / float(self.config.sample_rate)) * 1000.0
+            dur_ms = (seg_len / float(self.config.sample_rate)) * 1000.0
+
+            ready_segments.append(Segment(
+                segment_id=self.segment_counter,
+                samples=self.carryover_samples,
+                start_sample=seg_start_sample,
+                end_sample=seg_end_sample,
+                start_ms=start_ms,
+                end_ms=end_ms,
+                duration_ms=dur_ms,
+                endpoint_reason="flush_continuation" if endpoint_override == "flush" else endpoint_override,
+                ready_ts=time.perf_counter()
+            ))
+            self.carryover_samples = np.array([], dtype=np.float32)
+            self.carryover_start_sample = None
+
         self.current_speech_start_sample = None
         return ready_segments
 
@@ -223,4 +269,6 @@ class VadProcessor:
         self.samples_fed = 0
         self.vad_stream_offset = 0
         self.current_speech_start_sample = None
+        self.carryover_samples = np.array([], dtype=np.float32)
+        self.carryover_start_sample = None
 

@@ -24,7 +24,7 @@ from src.vad import VadProcessor
 from src.stt import SttEngine
 from src.metrics import compute_cer, normalize_text, get_memory_stats
 
-REVISED_RESULTS_FILE = "logs/task_01_scenario_rev2_results.json"
+REVISED_RESULTS_FILE = "logs/task_01_scenario_rev3_results.json"
 
 
 def run_scenario_1() -> Dict[str, Any]:
@@ -140,7 +140,7 @@ def run_scenario_3() -> Dict[str, Any]:
         stt=SttConfig(num_threads=4)
     )
     pipeline = SpeechPipeline(config)
-    res = pipeline.run_replay(temp_wav, speed=1.0, run_id="scenario3_rev2_replay")
+    res = pipeline.run_replay(temp_wav, speed=1.0, run_id="scenario3_rev3_replay")
 
     # Metrics with R1 clock corrections:
     # continuous_latency_stats tracks actual (result_emit - segment_start_speech_ts)
@@ -198,7 +198,7 @@ def run_scenario_4() -> Dict[str, Any]:
         stt=SttConfig(num_threads=4)
     )
     pipeline = SpeechPipeline(config)
-    res = pipeline.run_wav_vad(temp_wav, run_id="scenario4_rev2_boundary")
+    res = pipeline.run_wav_vad(temp_wav, run_id="scenario4_rev3_boundary")
 
     full_hyp = " ".join([s["text"] for s in res.segments])
     ref_phrase = "조금만 생각을 하면서 살면 훨씬 편할 거야"
@@ -209,15 +209,12 @@ def run_scenario_4() -> Dict[str, Any]:
     hyp_no_space = normalize_text(full_hyp, remove_punct=True).replace(" ", "")
     cer_nospace = compute_cer(ref_no_space, hyp_no_space, remove_punct=False)
 
-    # Sample preservation analysis across hard cut
+    # Sample preservation analysis across hard cut (Rev 03 F1)
     seg1 = res.segments[0]
     seg2 = res.segments[1] if len(res.segments) > 1 else None
-    sample_preservation_ok = (
-        seg2 is not None and
-        seg1["endpoint_reason"] == "hard_max_duration" and
-        seg2["endpoint_reason"] == "hard_cut_continuation" and
-        abs(seg2["duration_ms"] - 282.0) <= 2.0
-    )
+    is_contiguous = (seg2 is not None and abs(seg1["end_ms"] - seg2["start_ms"]) < 1.0)
+    total_seg_ms = sum(s["duration_ms"] for s in res.segments)
+    sample_preservation_ok = is_contiguous and (abs(total_seg_ms - 5658.0) < 5.0)
 
     res_data = {
         "scenario": 4,
@@ -227,13 +224,17 @@ def run_scenario_4() -> Dict[str, Any]:
         "hypothesis": full_hyp,
         "sample_preservation_guarantee": {
             "rev1_discarded_ms": 282.0,
-            "rev2_continuation_dur_ms": seg2["duration_ms"] if seg2 else 0.0,
+            "rev2_gap_ms": 166.0,
+            "rev3_gap_ms": 0.0,
             "sample_loss": 0,
+            "is_contiguous": is_contiguous,
             "is_sample_lossless": sample_preservation_ok
         },
         "segment_details": [
             {
                 "id": s["segment_id"],
+                "start_ms": s["start_ms"],
+                "end_ms": s["end_ms"],
                 "dur_ms": s["duration_ms"],
                 "reason": s["endpoint_reason"],
                 "text": s["text"]
@@ -245,13 +246,13 @@ def run_scenario_4() -> Dict[str, Any]:
         "deletions": cer_space["deletions"],
         "insertions": cer_space["insertions"],
         "boundary_analysis": (
-            "Rev 02 guarantees 100% sample preservation: Segment 1 (4000ms, hard_max_duration) "
-            "is immediately followed by Segment 2 (282ms, hard_cut_continuation) with zero samples discarded."
+            "Rev 03 guarantees 100% sample preservation without VAD reset gap: Segment 1 (4000ms, hard_max_duration) "
+            "is immediately and contiguously followed by Segment 2 (1658ms, flush_continuation) with zero samples lost and zero gap."
         )
     }
-    print(f"Scenario 4 Result: Segments: {len(res.segments)} | Sample Preservation: {'PASS (0 samples lost)' if sample_preservation_ok else 'FAIL'} | Spaced CER: {cer_space['cer']*100:.2f}% | Non-space CER: {cer_nospace['cer']*100:.2f}%")
+    print(f"Scenario 4 Result: Segments: {len(res.segments)} | Sample Preservation: {'PASS (0 samples lost, contiguous)' if sample_preservation_ok else 'FAIL'} | Spaced CER: {cer_space['cer']*100:.2f}% | Non-space CER: {cer_nospace['cer']*100:.2f}%")
     for s in res_data["segment_details"]:
-        print(f"  Seg #{s['id']} ({s['dur_ms']:.1f}ms, {s['reason']}): \"{s['text']}\"")
+        print(f"  Seg #{s['id']} [{s['start_ms']:.1f}ms - {s['end_ms']:.1f}ms | {s['dur_ms']:.1f}ms, {s['reason']}]: \"{s['text']}\"")
     return res_data
 
 def run_scenario_6() -> Dict[str, Any]:
@@ -271,7 +272,7 @@ def run_scenario_6() -> Dict[str, Any]:
     try:
         pipeline = SpeechPipeline()
         wav_path = "models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/test_wavs/ko.wav"
-        res = pipeline.run_wav_direct_stt(wav_path, run_id="scenario6_rev2_offline")
+        res = pipeline.run_wav_direct_stt(wav_path, run_id="scenario6_rev3_offline")
         text = res.segments[0]["text"] if res.segments else ""
         passed = ("생각" in text or "조금" in text)
         err = None
@@ -295,11 +296,11 @@ def run_scenario_6() -> Dict[str, Any]:
 
 def main():
     print("=================================================================")
-    print(" Running Task 01 Required Scenarios (Revision 02)")
+    print(" Running Task 01 Required Scenarios (Revision 03)")
     print("=================================================================")
 
     results = {
-        "revision": "02",
+        "revision": "03",
         "git_revision": get_git_revision(),
         "timestamp_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "scenario_1": run_scenario_1(),
@@ -314,7 +315,7 @@ def main():
         json.dump(results, f, ensure_ascii=False, indent=2)
 
     print("\n=================================================================")
-    print(f" Revision 02 Scenarios completed. Saved to {REVISED_RESULTS_FILE}")
+    print(f" Revision 03 Scenarios completed. Saved to {REVISED_RESULTS_FILE}")
     print("=================================================================")
 
 if __name__ == "__main__":

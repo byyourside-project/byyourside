@@ -1,6 +1,7 @@
 import json
 import os
 import time
+import threading
 from typing import Dict, Any, Optional
 
 class StructuredLogger:
@@ -10,20 +11,30 @@ class StructuredLogger:
         self.run_id = run_id
         self.log_dir = log_dir
         self.terminal_output = terminal_output
+        self._lock = threading.Lock()
         os.makedirs(self.log_dir, exist_ok=True)
         self.log_file_path = os.path.join(self.log_dir, f"stt_run_{run_id}.jsonl")
         self._file = open(self.log_file_path, "a", encoding="utf-8")
 
+    @property
+    def is_closed(self) -> bool:
+        with self._lock:
+            return self._file.closed
+
     def log_event(self, event_type: str, data: Dict[str, Any]) -> None:
         """Log a generic event dictionary to JSONL."""
-        entry = {
-            "timestamp_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "run_id": self.run_id,
-            "event_type": event_type,
-            **data
-        }
-        self._file.write(json.dumps(entry, ensure_ascii=False) + "\n")
-        self._file.flush()
+        with self._lock:
+            if self._file.closed:
+                # F2: Gracefully ignore attempts to write to closed logger without crashing
+                return
+            entry = {
+                "timestamp_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "run_id": self.run_id,
+                "event_type": event_type,
+                **data
+            }
+            self._file.write(json.dumps(entry, ensure_ascii=False) + "\n")
+            self._file.flush()
 
     def log_segment_result(
         self,
@@ -80,8 +91,9 @@ class StructuredLogger:
             )
 
     def close(self) -> None:
-        if not self._file.closed:
-            self._file.close()
+        with self._lock:
+            if not self._file.closed:
+                self._file.close()
 
     def __enter__(self):
         return self

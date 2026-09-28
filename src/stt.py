@@ -1,5 +1,5 @@
 import time
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Any
 import numpy as np
 import sherpa_onnx
 from src.config import SttConfig
@@ -31,11 +31,21 @@ class SttEngine:
         _, infer_ms = self.transcribe(dummy_audio, 16000, is_warmup=True)
         return infer_ms
 
-    def transcribe(self, samples: np.ndarray, sample_rate: int = 16000, is_warmup: bool = False) -> Tuple[str, float]:
+    def transcribe(
+        self,
+        samples: np.ndarray,
+        sample_rate: int = 16000,
+        is_warmup: bool = False,
+        abort_event: Optional[Any] = None
+    ) -> Tuple[str, float]:
         """
         Transcribe audio samples (1D float32 array in [-1.0, 1.0]).
         Returns (recognized_text, inference_time_ms).
+        Supports cooperative cancellation via abort_event.
         """
+        if abort_event is not None and getattr(abort_event, "is_set", lambda: False)():
+            return "", 0.0
+
         if samples.dtype != np.float32:
             samples = samples.astype(np.float32)
 
