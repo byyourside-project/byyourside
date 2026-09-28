@@ -1,14 +1,20 @@
 #!/usr/bin/env python3
 """
-Evaluation tool for Korean Presentation 30-Sentence CER Benchmark.
+Evaluation tool for Korean Presentation 30-Sentence CER Benchmark (Revision 02).
 Supports:
-  1. Strict P01~P30 coverage verification (1, 29, duplicate, or missing manifest items cannot achieve PASS).
-  2. Manifest loading with explicit mode ('complete' vs 'merge') and SHA-256 integrity hashing.
-  3. Direct STT vs VAD+STT evaluation: VAD CER is reported as null/NOT_RUN in direct mode (no fake 100%).
-  4. Population-aware aggregate CER and category breakdowns for both Direct and VAD pipelines.
-  5. Distinction between missing audio files (NOT_RUN), runtime failures (ERROR), and target misses (FAIL).
-  6. Atomic JSON output writing and reproducible metadata (git commit, dirty status, config, hashes).
-  7. Deterministic CLI exit codes (0: PASS, 1: FAIL/ERROR, 2: NOT_RUN/PARTIAL).
+  1. Strict reference validation: ref must be a non-empty string with at least 1 valid character
+     after text normalization. Blank or punctuation-only references are rejected before model init.
+  2. Strict P01~P30 coverage verification (1, 29, duplicate, or missing manifest items cannot achieve PASS).
+  3. Manifest loading with explicit mode ('complete' vs 'merge') and SHA-256 integrity hashing.
+     - 'complete': Evaluates only items listed in manifest. If < 30 items, status is PARTIAL (never PASS).
+     - 'merge': Overrides specified items while retaining standard 30-sentence references.
+  4. Direct STT vs VAD+STT evaluation: VAD CER is reported as null/NOT_RUN in direct mode (no fake 100%).
+  5. Population-aware aggregate CER and category breakdowns for both Direct and VAD pipelines.
+  6. Distinction between missing audio files (NOT_RUN), runtime failures (ERROR), and target misses (FAIL).
+  7. Comprehensive lifecycle failure reporting: Preserves JSON evidence even on constructor or read failures.
+  8. Output file protection: Default refusal to overwrite existing evidence files unless --overwrite is passed.
+  9. Complete reproduction metadata: config, SenseVoice model info, ITN status, git revision + dirty status.
+  10. Deterministic CLI exit codes (0: PASS, 1: FAIL/ERROR, 2: NOT_RUN/PARTIAL).
 """
 
 import argparse
@@ -101,13 +107,125 @@ def compute_file_sha256(filepath: str) -> str:
     return h.hexdigest()
 
 
-def atomic_write_json(filepath: str, data: Dict[str, Any]) -> None:
-    """Safely write JSON to disk using atomic rename."""
-    os.makedirs(os.path.dirname(os.path.abspath(filepath)) or ".", exist_ok=True)
-    tmp_path = f"{filepath}.tmp_{uuid.uuid4().hex[:8]}"
+def get_reproduction_metadata(benchmark_type: str = "cer") -> Dict[str, Any]:
+    """Retrieve complete runtime, model, ITN, and pipeline reproduction metadata."""
+    git_info = get_git_info()
+    meta = {
+        "git_revision": git_info["revision"],
+        "git_dirty": git_info["is_dirty"],
+        "python_version": sys.version.split()[0],
+        "platform": sys.platform,
+        "model": {
+            "name": "SenseVoice Small Korean/Multilingual ONNX",
+            "model_file": "models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/model.int8.onnx",
+            "tokens_file": "models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/tokens.txt",
+            "model_manifest_status": "verified_task_01",
+            "itn_status": "builtin_sensevoice_normalization_enabled"
+        },
+        "pipeline_config": {
+            "vad": {
+                "min_silence_duration": 0.5,
+                "max_speech_duration": 4.0,
+                "hard_max_speech_duration": 4.0
+            },
+            "stt": {
+                "request_timeout_sec": 5.0 if benchmark_type == "cer" else 2.0,
+                "num_threads": 4,
+                "itn_enabled": True
+            },
+            "audio": {
+                "target_sample_rate": 16000,
+                "device_sample_rate": 48000,
+                "channels": 1,
+                "downmix_method": "arithmetic_channel_mean"
+            }
+        }
+    }
+    if benchmark_type == "mic":
+        try:
+            import sounddevice as sd
+            dev = sd.query_devices(kind="input")
+            meta["microphone_device"] = {
+                "name": dev.get("name", "unknown"),
+                "default_samplerate": dev.get("default_samplerate", 48000),
+                "max_input_channels": dev.get("max_input_channels", 1)
+            }
+        except Exception:
+            meta["microphone_device"] = {"name": "system_default", "status": "query_unavailable"}
+    return meta
+
+
+def resolve_output_path(filepath: str, allow_overwrite: bool = False) -> str:
+    """
+    Resolves output file path protecting existing files unless allow_overwrite is True.
+    If filepath exists and allow_overwrite is False, generates a non-colliding unique path
+    preserving the existing file.
+    """
+    if not os.path.exists(filepath) or allow_overwrite:
+        return filepath
+
+    base, ext = os.path.splitext(filepath)
+    ts = time.strftime("%Y%m%d_%H%M%S", time.gmtime())
+    u = uuid.uuid4().hex[:6]
+    safe_path = f"{base}_{ts}_{u}{ext}"
+    print(
+        f"[OUTPUT PROTECTION] '{filepath}' already exists. Preserving original file and writing to '{safe_path}'. "
+        "(Pass --overwrite to overwrite existing files).",
+        file=sys.stderr
+    )
+    return safe_path
+
+
+def atomic_write_json(filepath: str, data: Dict[str, Any], allow_overwrite: bool = False) -> str:
+    """
+    Safely write JSON to disk using atomic rename.
+    If filepath exists and allow_overwrite is False:
+    Preserves the existing file and writes to a new unique path, returning the path used.
+    """
+    target_path = resolve_output_path(filepath, allow_overwrite=allow_overwrite)
+    os.makedirs(os.path.dirname(os.path.abspath(target_path)) or ".", exist_ok=True)
+    tmp_path = f"{target_path}.tmp_{uuid.uuid4().hex[:8]}"
     with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
-    os.replace(tmp_path, filepath)
+    os.replace(tmp_path, target_path)
+    return target_path
+
+
+def validate_reference_item(it: Any, index: Optional[int] = None) -> Tuple[str, str, str]:
+    """
+    Validates a single reference item:
+    - Must be a dictionary with 'id' and 'ref'.
+    - 'ref' must be a string and contain at least 1 character after CER normalization.
+    Returns:
+        (item_id, category, ref_text)
+    Raises:
+        ValueError: If validation fails.
+    """
+    idx_str = f" at index {index}" if index is not None else ""
+    if not isinstance(it, dict):
+        raise ValueError(f"Manifest item{idx_str} must be an object, got {type(it).__name__}")
+    if "id" not in it:
+        raise ValueError(f"Manifest item{idx_str} missing required field 'id'")
+    item_id = str(it["id"]).strip()
+    if not item_id:
+        raise ValueError(f"Manifest item{idx_str} has empty 'id'")
+
+    if "ref" not in it:
+        raise ValueError(f"Manifest item '{item_id}' missing required field 'ref'")
+    ref_val = it["ref"]
+    if not isinstance(ref_val, str):
+        raise ValueError(f"Manifest item '{item_id}' has non-string 'ref': {type(ref_val).__name__}")
+
+    # CER normalization: remove punctuation and whitespace
+    norm_ref = normalize_text(ref_val, remove_punct=True).replace(" ", "")
+    if len(norm_ref) == 0:
+        raise ValueError(
+            f"Invalid reference text for item '{item_id}': reference text is blank or contains only "
+            f"whitespace/punctuation after normalization ({repr(ref_val)})"
+        )
+
+    category = it.get("category", "unclassified")
+    return item_id, category, ref_val
 
 
 def load_manifest(manifest_path: Optional[str]) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
@@ -115,10 +233,14 @@ def load_manifest(manifest_path: Optional[str]) -> Tuple[List[Dict[str, Any]], D
     Load dataset from a manifest file or default standard dataset.
     Raises:
         FileNotFoundError: If manifest_path is specified but does not exist.
-        ValueError: If manifest format is invalid or contains duplicate IDs.
+        ValueError: If manifest format is invalid, contains duplicate IDs, or has empty references.
     """
     if manifest_path is None:
-        dataset = [dict(item) for item in STANDARD_DATASET]
+        dataset = []
+        for idx, item in enumerate(STANDARD_DATASET):
+            item_id, category, ref_val = validate_reference_item(item, idx)
+            dataset.append({"id": item_id, "category": category, "ref": ref_val})
+
         ref_concat = "".join(f"{it['id']}:{it['ref']}\n" for it in sorted(dataset, key=lambda x: str(x['id'])))
         ref_sha256 = hashlib.sha256(ref_concat.encode("utf-8")).hexdigest()
         manifest_meta = {
@@ -152,16 +274,16 @@ def load_manifest(manifest_path: Optional[str]) -> Tuple[List[Dict[str, Any]], D
     if not isinstance(raw_items, list):
         raise ValueError("Manifest 'items' must be a list of item objects")
 
-    # Check validity and duplicate IDs
+    # Validate each item and check for duplicate IDs
     seen_ids = set()
     duplicate_ids = []
-    for it in raw_items:
-        if not isinstance(it, dict) or "id" not in it or not it.get("ref"):
-            raise ValueError(f"Invalid manifest item (must have 'id' and non-empty 'ref'): {it}")
-        item_id = str(it["id"]).strip()
+    validated_raw_items = []
+    for idx, it in enumerate(raw_items):
+        item_id, category, ref_val = validate_reference_item(it, idx)
         if item_id in seen_ids:
             duplicate_ids.append(item_id)
         seen_ids.add(item_id)
+        validated_raw_items.append({"id": item_id, "category": category, "ref": ref_val})
 
     if duplicate_ids:
         raise ValueError(f"Duplicate item IDs detected in manifest: {sorted(list(set(duplicate_ids)))}")
@@ -169,15 +291,15 @@ def load_manifest(manifest_path: Optional[str]) -> Tuple[List[Dict[str, Any]], D
     if mode == "merge":
         # Merge specified items into standard dataset
         std_map = {item["id"]: dict(item) for item in STANDARD_DATASET}
-        for it in raw_items:
-            item_id = str(it["id"]).strip()
+        for it in validated_raw_items:
+            item_id = it["id"]
             if item_id in std_map:
                 std_map[item_id].update(it)
             else:
                 std_map[item_id] = dict(it)
         dataset = list(std_map.values())
     elif mode == "complete":
-        dataset = [dict(it) for it in raw_items]
+        dataset = validated_raw_items
     else:
         raise ValueError(f"Unsupported manifest mode: '{mode}'. Supported modes: 'complete', 'merge'")
 
@@ -199,7 +321,8 @@ def evaluate_dataset(
     audio_dir: str = "audio/eval_30",
     manifest_path: Optional[str] = None,
     output_json: Optional[str] = None,
-    mode: str = "all"
+    mode: str = "all",
+    allow_overwrite: bool = False
 ) -> Dict[str, Any]:
     """
     Executes the CER evaluation workflow against recorded audio files.
@@ -212,8 +335,9 @@ def evaluate_dataset(
         output_json = f"logs/cer_eval_results_{exec_id}.json"
 
     git_info = get_git_info()
+    repro_meta = get_reproduction_metadata("cer")
 
-    # 1. Load dataset & validate manifest
+    # 1. Load dataset & validate manifest before pipeline startup
     dataset = []
     manifest_meta = {}
     try:
@@ -233,10 +357,20 @@ def evaluate_dataset(
             "error_count": 1,
             "overall_status": f"ERROR (Manifest error: {exc})",
             "structured_status": "ERROR",
-            "error": str(exc),
-            "manifest_metadata": {"path": manifest_path, "error": str(exc)}
+            "failed_phase": "manifest_loading",
+            "exception_type": type(exc).__name__,
+            "exception_message": str(exc),
+            "primary_metric": {
+                "name": "vad_corpus_cer_nospace" if mode in ["all", "vad"] else "direct_corpus_cer_nospace",
+                "description": "Sum of Levenshtein edit distances / Sum of reference characters with punctuation and spaces removed",
+                "target_threshold": 0.15,
+                "measured_value": None,
+                "measured_value_raw": None
+            },
+            "manifest_metadata": {"path": manifest_path, "error": str(exc)},
+            "reproduction_metadata": repro_meta
         }
-        atomic_write_json(output_json, err_report)
+        atomic_write_json(output_json, err_report, allow_overwrite=allow_overwrite)
         print(f"Error loading manifest: {exc}", file=sys.stderr)
         return err_report
 
@@ -270,6 +404,7 @@ def evaluate_dataset(
     pairs_vad_nospace = []
     pairs_vad_spaced = []
 
+    failed_phase = "pipeline_init"
     try:
         pipeline = SpeechPipeline(
             PipelineConfig(
@@ -278,6 +413,7 @@ def evaluate_dataset(
             )
         )
 
+        failed_phase = "file_evaluation"
         for item in dataset:
             item_id = str(item["id"]).strip()
             category = item.get("category", "unclassified")
@@ -410,6 +546,36 @@ def evaluate_dataset(
 
             item_results.append(rec_info)
 
+    except Exception as exc:
+        err_report = {
+            "benchmark": "Korean Presentation 30-Sentence CER Benchmark",
+            "execution_id": exec_id,
+            "git_revision": git_info["revision"],
+            "git_dirty": git_info["is_dirty"],
+            "timestamp_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "audio_directory": audio_dir,
+            "manifest_path": manifest_path,
+            "total_dataset_items": len(dataset),
+            "executed_count": direct_success_count or vad_success_count,
+            "not_run_count": missing_audio_count,
+            "error_count": 1,
+            "overall_status": f"ERROR (Exception in {failed_phase}: {type(exc).__name__})",
+            "structured_status": "ERROR",
+            "failed_phase": failed_phase,
+            "exception_type": type(exc).__name__,
+            "exception_message": str(exc),
+            "primary_metric": {
+                "name": "vad_corpus_cer_nospace" if mode in ["all", "vad"] else "direct_corpus_cer_nospace",
+                "target_threshold": 0.15,
+                "measured_value": None,
+                "measured_value_raw": None
+            },
+            "items": item_results,
+            "reproduction_metadata": repro_meta
+        }
+        atomic_write_json(output_json, err_report, allow_overwrite=allow_overwrite)
+        raise
+
     finally:
         if pipeline is not None:
             pipeline.close()
@@ -424,9 +590,14 @@ def evaluate_dataset(
     if pairs_direct_nospace:
         agg_d_no = compute_corpus_cer(pairs_direct_nospace, remove_punct=False, ignore_space=False)
         agg_d_sp = compute_corpus_cer(pairs_direct_spaced, remove_punct=True, ignore_space=False)
-        aggregate_metrics["direct_corpus_cer_nospace"] = round(agg_d_no["corpus_cer"], 4)
-        aggregate_metrics["direct_corpus_cer_spaced"] = round(agg_d_sp["corpus_cer"], 4)
-        aggregate_metrics["direct_raw_cer_nospace"] = agg_d_no["corpus_cer"]
+        if agg_d_no["total_ref_len"] == 0:
+            aggregate_metrics["direct_corpus_cer_nospace"] = None
+            aggregate_metrics["direct_corpus_cer_spaced"] = None
+            aggregate_metrics["direct_raw_cer_nospace"] = None
+        else:
+            aggregate_metrics["direct_corpus_cer_nospace"] = round(agg_d_no["corpus_cer"], 4)
+            aggregate_metrics["direct_corpus_cer_spaced"] = round(agg_d_sp["corpus_cer"], 4)
+            aggregate_metrics["direct_raw_cer_nospace"] = agg_d_no["corpus_cer"]
     else:
         aggregate_metrics["direct_corpus_cer_nospace"] = None
         aggregate_metrics["direct_corpus_cer_spaced"] = None
@@ -435,9 +606,14 @@ def evaluate_dataset(
     if pairs_vad_nospace:
         agg_v_no = compute_corpus_cer(pairs_vad_nospace, remove_punct=False, ignore_space=False)
         agg_v_sp = compute_corpus_cer(pairs_vad_spaced, remove_punct=True, ignore_space=False)
-        aggregate_metrics["vad_corpus_cer_nospace"] = round(agg_v_no["corpus_cer"], 4)
-        aggregate_metrics["vad_corpus_cer_spaced"] = round(agg_v_sp["corpus_cer"], 4)
-        aggregate_metrics["vad_raw_cer_nospace"] = agg_v_no["corpus_cer"]
+        if agg_v_no["total_ref_len"] == 0:
+            aggregate_metrics["vad_corpus_cer_nospace"] = None
+            aggregate_metrics["vad_corpus_cer_spaced"] = None
+            aggregate_metrics["vad_raw_cer_nospace"] = None
+        else:
+            aggregate_metrics["vad_corpus_cer_nospace"] = round(agg_v_no["corpus_cer"], 4)
+            aggregate_metrics["vad_corpus_cer_spaced"] = round(agg_v_sp["corpus_cer"], 4)
+            aggregate_metrics["vad_raw_cer_nospace"] = agg_v_no["corpus_cer"]
     else:
         aggregate_metrics["vad_corpus_cer_nospace"] = None
         aggregate_metrics["vad_corpus_cer_spaced"] = None
@@ -579,10 +755,11 @@ def evaluate_dataset(
             "(segment boundary context, pause cuts). It is not an isolated causal proof of speech truncation without acoustic phoneme alignment."
         ),
         "aggregate_metrics": aggregate_metrics,
-        "items": item_results
+        "items": item_results,
+        "reproduction_metadata": repro_meta
     }
 
-    atomic_write_json(output_json, report)
+    actual_output = atomic_write_json(output_json, report, allow_overwrite=allow_overwrite)
 
     print("-----------------------------------------------------------------")
     print(f" Overall Status:    {overall_status}")
@@ -593,7 +770,7 @@ def evaluate_dataset(
             print(f" VAD+STT Non-space CER: {aggregate_metrics['vad_corpus_cer_nospace']*100:.2f}% (Target: <= 15.0%)")
         if aggregate_metrics.get("direct_corpus_cer_nospace") is not None:
             print(f" Direct STT Non-space CER: {aggregate_metrics['direct_corpus_cer_nospace']*100:.2f}%")
-    print(f" Report saved to:   {output_json}")
+    print(f" Report saved to:   {actual_output}")
     print("=================================================================")
     return report
 
@@ -608,6 +785,8 @@ def main():
                         help="Path to output evaluation summary JSON (defaults to isolated timestamped file)")
     parser.add_argument("--mode", type=str, choices=["all", "direct", "vad"], default="all",
                         help="Evaluation mode: 'all' (compare direct vs vad), 'direct', or 'vad'")
+    parser.add_argument("--overwrite", action="store_true", default=False,
+                        help="Allow overwriting existing output JSON file (default: protect existing files)")
     args = parser.parse_args()
 
     try:
@@ -615,7 +794,8 @@ def main():
             audio_dir=args.audio_dir,
             manifest_path=args.manifest_json,
             output_json=args.output_json,
-            mode=args.mode
+            mode=args.mode,
+            allow_overwrite=args.overwrite
         )
         status = report.get("structured_status", "UNKNOWN")
         if status == "PASS":

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Scenario 5: 10-Minute Live Microphone Stability and Resource Benchmark.
+Scenario 5: 10-Minute Live Microphone Stability and Resource Benchmark (Revision 02).
 Uses the unified SpeechPipeline.run_mic() path.
 
 Evaluates against PM requirements:
@@ -11,6 +11,10 @@ Evaluates against PM requirements:
   5. Queue latency stability: Measures trend drift, intermediate surges, and per-minute queue wait stats.
   6. Failure evidence preservation: Emits JSON report with run_id, phase, and exception even on timeout/crash.
   7. Clear gate status separation: System/Resource Stability vs Presentation Speech Coverage vs Human Latency.
+     - 'passed' field reflects overall gate PASS (False if PARTIAL).
+     - 'technical_stability_passed' reflects lossless + latency criteria.
+  8. Output file protection: Default refusal to overwrite existing evidence files unless --overwrite is passed.
+  9. Complete reproduction metadata: config, microphone device info, SenseVoice model info, ITN status.
 """
 
 import argparse
@@ -50,13 +54,92 @@ def get_git_info() -> Dict[str, Any]:
         return {"revision": "unknown", "is_dirty": False}
 
 
-def atomic_write_json(filepath: str, data: Dict[str, Any]) -> None:
-    """Safely write JSON to disk using atomic rename."""
-    os.makedirs(os.path.dirname(os.path.abspath(filepath)) or ".", exist_ok=True)
-    tmp_path = f"{filepath}.tmp_{uuid.uuid4().hex[:8]}"
+def get_reproduction_metadata() -> Dict[str, Any]:
+    """Retrieve runtime, model, ITN, audio device, and pipeline reproduction metadata."""
+    git_info = get_git_info()
+    meta = {
+        "git_revision": git_info["revision"],
+        "git_dirty": git_info["is_dirty"],
+        "python_version": sys.version.split()[0],
+        "platform": sys.platform,
+        "model": {
+            "name": "SenseVoice Small Korean/Multilingual ONNX",
+            "model_file": "models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/model.int8.onnx",
+            "tokens_file": "models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/tokens.txt",
+            "model_manifest_status": "verified_task_01",
+            "itn_status": "builtin_sensevoice_normalization_enabled"
+        },
+        "pipeline_config": {
+            "vad": {
+                "min_silence_duration": 0.5,
+                "max_speech_duration": 4.0,
+                "hard_max_speech_duration": 4.0
+            },
+            "stt": {
+                "request_timeout_sec": 2.0,
+                "warm_up_timeout_sec": 10.0,
+                "num_threads": 4,
+                "itn_enabled": True
+            },
+            "audio": {
+                "target_sample_rate": 16000,
+                "device_sample_rate": 48000,
+                "channels": 1,
+                "downmix_method": "arithmetic_channel_mean"
+            },
+            "queue": {
+                "max_audio_queue_size": 300,
+                "max_segment_queue_size": 100
+            }
+        }
+    }
+    try:
+        import sounddevice as sd
+        dev = sd.query_devices(kind="input")
+        meta["microphone_device"] = {
+            "name": dev.get("name", "unknown"),
+            "default_samplerate": dev.get("default_samplerate", 48000),
+            "max_input_channels": dev.get("max_input_channels", 1)
+        }
+    except Exception:
+        meta["microphone_device"] = {"name": "system_default", "status": "query_unavailable"}
+    return meta
+
+
+def resolve_output_path(filepath: str, allow_overwrite: bool = False) -> str:
+    """
+    Resolves output file path protecting existing files unless allow_overwrite is True.
+    If filepath exists and allow_overwrite is False, generates a non-colliding unique path
+    preserving the existing file.
+    """
+    if not os.path.exists(filepath) or allow_overwrite:
+        return filepath
+
+    base, ext = os.path.splitext(filepath)
+    ts = time.strftime("%Y%m%d_%H%M%S", time.gmtime())
+    u = uuid.uuid4().hex[:6]
+    safe_path = f"{base}_{ts}_{u}{ext}"
+    print(
+        f"[OUTPUT PROTECTION] '{filepath}' already exists. Preserving original file and writing to '{safe_path}'. "
+        "(Pass --overwrite to overwrite existing files).",
+        file=sys.stderr
+    )
+    return safe_path
+
+
+def atomic_write_json(filepath: str, data: Dict[str, Any], allow_overwrite: bool = False) -> str:
+    """
+    Safely write JSON to disk using atomic rename.
+    If filepath exists and allow_overwrite is False:
+    Preserves the existing file and writes to a new unique path, returning the path used.
+    """
+    target_path = resolve_output_path(filepath, allow_overwrite=allow_overwrite)
+    os.makedirs(os.path.dirname(os.path.abspath(target_path)) or ".", exist_ok=True)
+    tmp_path = f"{target_path}.tmp_{uuid.uuid4().hex[:8]}"
     with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
-    os.replace(tmp_path, filepath)
+    os.replace(tmp_path, target_path)
+    return target_path
 
 
 def analyze_per_minute_speech(
@@ -119,7 +202,8 @@ def analyze_per_minute_speech(
 
 def run_mic_benchmark(
     duration_seconds: float = 600.0,
-    output_json: Optional[str] = None
+    output_json: Optional[str] = None,
+    allow_overwrite: bool = False
 ) -> Dict[str, Any]:
     run_timestamp = time.strftime("%Y%m%d_%H%M%S", time.gmtime())
     run_uuid = uuid.uuid4().hex[:8]
@@ -132,6 +216,7 @@ def run_mic_benchmark(
 
     run_id = f"mic_{'10m' if is_full_10min_gate else 'smoke'}_{run_timestamp}_{run_uuid}"
     git_info = get_git_info()
+    repro_meta = get_reproduction_metadata()
 
     print("=================================================================")
     print(f" Starting Scenario 5: Live Microphone Evaluation ({duration_seconds}s)")
@@ -243,11 +328,14 @@ def run_mic_benchmark(
         delay_ok = (res.estimated_delay_stats.get("p95", 9999.0) <= 1500.0)
         status_ok = (res.status == "OK")
         resource_stability_ok = lossless_ok and status_ok and queue_stability_ok
+        technical_stability_passed = resource_stability_ok and rtf_ok and delay_ok
 
         child_pid = getattr(pipeline.stt, "child_pid", None)
         final_mem = get_memory_stats(child_pid)
 
-        # 5. Clean separation of judgments
+        # 5. Clean separation of judgments:
+        # 'passed' reflects overall gate status (False when PARTIAL/FAIL/NOT_RUN/ERROR)
+        # 'technical_stability_passed' reflects system resource/latency benchmarks
         if not duration_satisfied:
             structured_status = "FAIL"
             overall_status = f"FAIL (Captured duration {captured_audio_sec:.1f}s was less than target {duration_seconds - dur_tolerance:.1f}s)"
@@ -288,12 +376,12 @@ def run_mic_benchmark(
                 "PARTIAL (10-minute system and resource stability satisfied; "
                 "continuous presentation coverage and human reference speech-end latency remain PARTIAL pending user/PM review)"
             )
-            passed = True
+            passed = False  # Overall gate is PARTIAL, not unconditional PASS
         else:  # smoke test (<600s)
             structured_status = "PARTIAL"
             overall_status = "PARTIAL (Smoke test passed; 600s continuous stability requires user 10min live presentation)"
             judgment = overall_status
-            passed = True
+            passed = False  # Overall gate is PARTIAL pending 600s run
 
         summary = {
             "scenario": 5,
@@ -307,6 +395,7 @@ def run_mic_benchmark(
             "overall_status": overall_status,
             "structured_status": structured_status,
             "passed": passed,
+            "technical_stability_passed": technical_stability_passed,
             "judgment": judgment,
             "target_duration_seconds": duration_seconds,
             "measured_wall_seconds": round(t_wall_elapsed, 2),
@@ -356,20 +445,23 @@ def run_mic_benchmark(
                 "egress_blocking": "Offline mic operation confirms local execution; OS kernel egress blocking remains PARTIAL pending network firewall validation."
             },
             "periodic_snapshots": res.periodic_snapshots,
-            "detected_segments": res.segments
+            "detected_segments": res.segments,
+            "reproduction_metadata": repro_meta
         }
 
-        atomic_write_json(output_json, summary)
+        actual_output = atomic_write_json(output_json, summary, allow_overwrite=allow_overwrite)
 
         print("=================================================================")
         print(f" Evaluation Result: {judgment}")
         print(f" Overall Status:    {overall_status}")
         print(f" Structured Status: {structured_status}")
+        print(f" Technical Stability Passed: {technical_stability_passed}")
+        print(f" Overall Passed:    {passed}")
         print(f" Captured Audio:    {captured_audio_sec:.2f}s (Target: {duration_seconds:.1f}s)")
         print(f" Speech Duration:   {res.total_speech_seconds:.2f}s ({active_minutes}/{minute_count} active minutes)")
         print(f" Lossless Stream:   {'YES' if lossless_ok else 'NO'} (Overruns: {res.overrun_count}, Drops: {res.dropped_audio_chunks})")
         print(f" Memory (RSS):      Parent: {final_mem['parent_rss_mb']:.1f} MB | Child: {final_mem['child_rss_mb']:.1f} MB")
-        print(f" Result saved to:   {output_json}")
+        print(f" Result saved to:   {actual_output}")
         print("=================================================================")
         return summary
 
@@ -387,14 +479,16 @@ def run_mic_benchmark(
             "overall_status": f"ERROR (Exception in {failed_phase}: {type(exc).__name__})",
             "structured_status": "ERROR",
             "passed": False,
+            "technical_stability_passed": False,
             "judgment": f"ERROR: Execution failed during {failed_phase} with {type(exc).__name__}: {str(exc)}",
             "failed_phase": failed_phase,
             "exception_type": type(exc).__name__,
             "exception_message": str(exc),
             "target_duration_seconds": duration_seconds,
-            "measured_wall_seconds": round(t_wall_elapsed, 2)
+            "measured_wall_seconds": round(t_wall_elapsed, 2),
+            "reproduction_metadata": repro_meta
         }
-        atomic_write_json(output_json, err_summary)
+        atomic_write_json(output_json, err_summary, allow_overwrite=allow_overwrite)
         print(f"Exception in {failed_phase}: {exc}", file=sys.stderr)
         raise
 
@@ -409,10 +503,16 @@ def main():
                         help="Target duration in seconds (default: 600.0 for 10-min gate)")
     parser.add_argument("--output-json", type=str, default=None,
                         help="Path to output JSON file (defaults to timestamped isolated file)")
+    parser.add_argument("--overwrite", action="store_true", default=False,
+                        help="Allow overwriting existing output JSON file (default: protect existing files)")
     args = parser.parse_args()
 
     try:
-        summary = run_mic_benchmark(duration_seconds=args.duration, output_json=args.output_json)
+        summary = run_mic_benchmark(
+            duration_seconds=args.duration,
+            output_json=args.output_json,
+            allow_overwrite=args.overwrite
+        )
         status = summary.get("structured_status", "UNKNOWN")
         if status == "PASS":
             sys.exit(0)

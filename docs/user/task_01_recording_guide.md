@@ -134,17 +134,21 @@ rec -r 16000 -c 1 audio/eval_30/P01.wav trim 0 5
   - **원칙 1**: 다시 녹음하는 것을 가장 권장합니다.
   - **원칙 2**: 다시 녹음하기 어려운 경우, **평가 실행 전**에 사람이 실제 발화한 내용대로 정답 텍스트를 검수하여 매니페스트(`manifest.json`)를 작성합니다.
   - **원칙 3 (절대 금지)**: **STT 인식 결과를 확인한 뒤에 인식 오류를 피하려고 정답 텍스트를 사후 수정하는 행위는 엄격히 금지됩니다.**
+  - **원칙 4 (정답 유효성 요건)**: 정답 텍스트(`ref`)는 반드시 문자열이어야 하며, 문장부호 및 공백 제거 정규화 후 최소 1글자 이상의 유효 한글/영문/숫자를 포함해야 합니다. 공백만 있거나(`"   "`), 문장부호만으로 구성된(`".,!?"`) 정답은 모델 추론 시작 전에 즉시 `ERROR`로 거부됩니다.
 
-#### 매니페스트 JSON 예시 (`manifest.json`):
+#### 매니페스트 JSON 예시 (`manifest.json`) 및 모드별 동작 정책:
 매니페스트는 두 가지 모드를 지원합니다:
-1. **완전 목록 모드 (`mode: "complete"`, 기본값)**: P01~P30 총 30개의 모든 문항을 포함해야 합니다.
-2. **병합 수정 모드 (`mode: "merge"`)**: 수정한 문항만 지정하며, 지정되지 않은 나머지 문항은 기본 30문장 정답을 유지합니다.
+1. **완전 목록 모드 (`mode: "complete"`, 기본값)**:
+   - 매니페스트에 나열된 항목만을 전사 평가 대상으로 삼습니다.
+   - P01~P30 30개 고유 ID가 모두 포함되어 있어야 전체 `PASS`가 가능합니다. 만약 1개나 29개 등 부분 목록만 제공되면, 해당 항목들에 대한 CER 평가는 정상 수행되지만 표준 30문항 커버리지 미충족으로 종합 판정은 `PARTIAL`로 기록되며 결코 전체 `PASS`가 될 수 없습니다. (입력을 무조건 거부하는 것이 아니라 부분 실행 `PARTIAL`로 안전 처리).
+2. **병합 수정 모드 (`mode: "merge"`)**:
+   - 오독 등으로 수정한 문항만 지정하며, 지정되지 않은 나머지 문항은 표준 30문장 정답을 자동으로 유지하여 30문항 전수 평가를 완결합니다.
 
 ```json
 {
   "version": "1.0",
   "mode": "merge",
-  "description": "사용자 발화 정답 수정 매니페스트",
+  "description": "사용자 발화 정답 수정 매니페스트 (수정 항목만 기재)",
   "items": [
     {
       "id": "P09",
@@ -160,7 +164,7 @@ rec -r 16000 -c 1 audio/eval_30/P01.wav trim 0 5
 }
 ```
 > [!NOTE]
-> 매니페스트 경로를 `--manifest-json`으로 지정했을 때 해당 파일이 없거나 JSON 형식/중복 ID 오류가 있으면 조용히 기본값으로 대체되지 않고 즉시 명시적 에러(`ERROR`)를 보고합니다.
+> 매니페스트 경로를 `--manifest-json`으로 지정했을 때 해당 파일이 없거나 JSON 형식/중복 ID/공백 정답 오류가 있으면 조용히 기본값으로 대체되지 않고 모델 시작 전에 즉시 명시적 에러(`ERROR`) 보고서를 생성합니다.
 
 ---
 
@@ -169,18 +173,21 @@ rec -r 16000 -c 1 audio/eval_30/P01.wav trim 0 5
 녹음 파일(`P01.wav` ~ `P30.wav`)이 준비되면 아래 명령어로 평가를 실행합니다:
 
 ```bash
-# 기본 평가 실행 (Direct STT 및 VAD+STT 동시 비교 평가)
+# 기본 평가 실행 (Direct STT 및 VAD+STT 동시 비교 평가, 격리된 고유 로그 자동 생성)
 .venv/bin/python scripts/evaluate_cer.py --audio-dir audio/eval_30
 
 # 사람이 검수한 매니페스트가 있는 경우
 .venv/bin/python scripts/evaluate_cer.py --audio-dir audio/eval_30 --manifest-json audio/eval_30/manifest.json
 
-# 단독 Direct STT 모드 실행 (Task 01 VAD gate는 NOT_RUN으로 분리)
-.venv/bin/python scripts/evaluate_cer.py --audio-dir audio/eval_30 --mode direct
+# 특정 출력 파일 지정 시 (기존 파일이 존재하면 덮어쓰지 않고 고유 경로로 자동 보존)
+.venv/bin/python scripts/evaluate_cer.py --audio-dir audio/eval_30 --output-json logs/my_eval.json
+
+# 기존 파일을 명시적으로 교체하고자 할 경우
+.venv/bin/python scripts/evaluate_cer.py --audio-dir audio/eval_30 --output-json logs/my_eval.json --overwrite
 ```
 
-### 5.1 출력 결과 및 지표 해석
-- **고유 실행 식별**: 각 실행은 UUID와 타임스탬프가 부여된 고유 파일(`logs/cer_eval_results_YYYYMMDD_HHMMSS_*.json`)에 보존됩니다.
+### 5.1 출력 결과 보호 및 지표 해석
+- **기존 출력 파일 보호 정책**: `--output-json`으로 지정한 파일이 이미 존재하는 경우, 이전 평가 증거를 보존하기 위해 기본적으로 덮어쓰지 않고 `my_eval_YYYYMMDD_HHMMSS_<uuid>.json` 형태로 새 고유 경로에 저장됩니다 (`--overwrite` 플래그로만 명시적 교체 허용).
 - **상태 구분**:
   - `NOT_RUN`: 녹음 파일이 존재하지 않음 (0/30).
   - `PARTIAL`: 파일 일부만 존재하거나, 매니페스트 문항이 30개 미만인 경우.
@@ -204,8 +211,14 @@ rec -r 16000 -c 1 audio/eval_30/P01.wav trim 0 5
 
 ### 6.2 실행 명령어
 ```bash
-# 600초 (10분) 마이크 실사용 안정성 평가 실행
+# 600초 (10분) 마이크 실사용 안정성 평가 실행 (고유 격리 로그 자동 생성)
 .venv/bin/python tests/test_mic_10min.py --duration 600.0
+
+# 특정 파일 지정 시 (기존 파일이 존재하면 보호를 위해 새 고유 파일명으로 자동 분기)
+.venv/bin/python tests/test_mic_10min.py --duration 600.0 --output-json logs/my_mic.json
+
+# 기존 파일을 명시적으로 교체하고자 할 경우
+.venv/bin/python tests/test_mic_10min.py --duration 600.0 --output-json logs/my_mic.json --overwrite
 ```
 
 ### 6.3 평가 검증 기준 및 게이트 분리:
@@ -218,10 +231,12 @@ rec -r 16000 -c 1 audio/eval_30/P01.wav trim 0 5
 3. **입력 존재 확인 (`speech_input_presence`)**:
    - 10분 중 최소 5개 이상의 분(minute) 동안 유의미한 발화 감지 (총 60초 이상).
    - *주의: 최소 발화 조건 충족은 음성 입력이 유효했음을 나타내는 진단 기준이며, 10분 발표 연속성 완결의 직접 증거는 아닙니다.*
-4. **발표 연속성 및 사람 기준 지연**:
+4. **발표 연속성 및 사람 기준 지연 (게이트 분리)**:
    - 발표 연속성 적합성(`continuous_presentation_coverage`) 및 사람 청취 기준 종료 지연(`human_reference_speech_end_latency`)은 사용자 및 PM 검토 대상으로서 `PARTIAL`로 유지됩니다.
-5. **예외 보존**:
+   - 이에 따라 `technical_stability_passed`는 기술 지표 통과 시 `True`가 되지만, 전체 게이트 `passed`는 연속 발표 및 주석 완료 전까지 `False`(`overall_status: PARTIAL`)로 명확히 분리됩니다.
+5. **예외 및 기존 파일 보존**:
    - 실행 도중 예외가 발생하더라도 `logs/task_01_mic_10min_*.json`에 실패 단계(`failed_phase`), 예외 내용, 수집된 지표를 안전하게 저장합니다.
+   - 기존 결과 파일이 지정되어 있더라도 실패 기록 때문에 이전 파일이 덮어씌워지지 않도록 보호됩니다.
 
 ---
 

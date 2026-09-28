@@ -1,5 +1,8 @@
 # Task 01 실사용 평가 도구 Revision 01 결과 보고서
 
+> [!NOTE]
+> 본 보고서의 후속 보완 내역(R1 정답 유효성, R2 CER 실패 증거 보존, R3 기존 출력 파일 보호)은 [docs/reports/task_01_validation_tools_revision_02_report.md](file:///Users/jwlee/study1/byyourside/docs/reports/task_01_validation_tools_revision_02_report.md)에 상세히 기술되어 있습니다.
+
 - **작성일**: 2026-09-28
 - **대상 커밋**: `d88573e` 이후 수정 작업
 - **검수 문서**: `docs/reports/task_01_validation_tools_pm_review.md`
