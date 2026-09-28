@@ -12,7 +12,7 @@ import sounddevice as sd
 
 from src.config import PipelineConfig
 from src.vad import VadProcessor, Segment
-from src.stt import SttEngine
+from src.stt import SttEngine, IsolatedSttEngine
 from src.logger import StructuredLogger
 from src.metrics import calculate_percentiles, get_memory_stats
 from src.audio_utils import load_and_normalize_audio
@@ -84,12 +84,12 @@ class PipelineResult:
 class SpeechPipeline:
     """Unified audio pipeline supporting direct WAV, simulated replay, and live microphone."""
 
-    def __init__(self, config: Optional[PipelineConfig] = None):
+    def __init__(self, config: Optional[PipelineConfig] = None, stt: Optional[Any] = None):
         self.config = config or PipelineConfig()
         self.config.validate()
 
         self.vad = VadProcessor(self.config.vad)
-        self.stt = SttEngine(self.config.stt)
+        self.stt = stt or IsolatedSttEngine(self.config.stt)
         self._active_workers: List[threading.Thread] = []
         self._worker_lock = threading.Lock()
 
@@ -98,6 +98,11 @@ class SpeechPipeline:
         with self._worker_lock:
             self._active_workers = [t for t in self._active_workers if t.is_alive()]
             return len(self._active_workers) > 0
+
+    def close(self) -> None:
+        """Orderly shutdown of pipeline workers and child engine processes."""
+        if hasattr(self.stt, "close"):
+            self.stt.close()
 
     def run_wav_direct_stt(self, wav_path: str, run_id: Optional[str] = None) -> PipelineResult:
         """
@@ -633,9 +638,11 @@ class SpeechPipeline:
                 vad_timed_out = t_vad.is_alive()
                 stt_timed_out = t_stt.is_alive()
 
-                # If workers timed out, now trigger abort and drain
-                if vad_timed_out or stt_timed_out:
+                # If workers timed out or aborted, now trigger abort, terminate child process, and drain
+                if vad_timed_out or stt_timed_out or abort_event.is_set():
                     abort_event.set()
+                    if hasattr(self.stt, "terminate"):
+                        self.stt.terminate()
                     while not audio_queue.empty():
                         try:
                             audio_queue.get_nowait()
@@ -707,7 +714,7 @@ class SpeechPipeline:
                 segments=segment_results
             )
         finally:
-            if not (t_vad.is_alive() or t_stt.is_alive()):
+            if not self.has_running_workers():
                 logger.close()
 
 
@@ -1061,9 +1068,11 @@ class SpeechPipeline:
                 vad_timed_out = t_vad.is_alive()
                 stt_timed_out = t_stt.is_alive()
 
-                # If workers timed out, now trigger abort and drain
-                if vad_timed_out or stt_timed_out:
+                # If workers timed out or aborted, now trigger abort, terminate child process, and drain
+                if vad_timed_out or stt_timed_out or abort_event.is_set():
                     abort_event.set()
+                    if hasattr(self.stt, "terminate"):
+                        self.stt.terminate()
                     while not audio_queue.empty():
                         try:
                             audio_queue.get_nowait()
@@ -1138,7 +1147,7 @@ class SpeechPipeline:
                 periodic_snapshots=periodic_snapshots
             )
         finally:
-            if not (t_vad.is_alive() or t_stt.is_alive()):
+            if not self.has_running_workers():
                 logger.close()
 
 

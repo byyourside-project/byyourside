@@ -297,10 +297,11 @@ def run_scenario_6() -> Dict[str, Any]:
 def main():
     print("=================================================================")
     print(" Running Task 01 Required Scenarios (Revision 03)")
-    print("=================================================================")
+    revision = "04" if "--rev4" in sys.argv else "03"
+    results_file = f"logs/task_01_scenario_rev{revision}_results.json"
 
     results = {
-        "revision": "03",
+        "revision": revision,
         "git_revision": get_git_revision(),
         "timestamp_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "scenario_1": run_scenario_1(),
@@ -311,13 +312,14 @@ def main():
     }
 
     os.makedirs("logs", exist_ok=True)
-    with open(REVISED_RESULTS_FILE, "w", encoding="utf-8") as f:
+    with open(results_file, "w", encoding="utf-8") as f:
         json.dump(results, f, ensure_ascii=False, indent=2)
 
     print("\n=================================================================")
-    print(f" Revision 03 Scenarios completed. Saved to {REVISED_RESULTS_FILE}")
+    print(f" Revision {revision} Scenarios completed. Saved to {results_file}")
     print("=================================================================")
 
 if __name__ == "__main__":
     main()
+
 

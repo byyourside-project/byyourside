@@ -186,6 +186,7 @@ class TestTask01Revision03(unittest.TestCase):
         # Wait for dummy thread to finish
         pipeline._active_workers[-1].join(timeout=1.0)
         self.assertFalse(pipeline.has_running_workers())
+        pipeline.close()
         print("[Rev3 F2 Check] Cooperative cancellation, worker cleanup, and rerun protection verified.")
 
     def test_f2_closed_logger_protection(self):
@@ -213,30 +214,40 @@ class TestTask01Revision03(unittest.TestCase):
 
     def test_f2_subprocess_hang_isolation(self):
         """
-        F2 [P1]: Run a hung STT test in an isolated child process with an external timeout
-        to verify that the parent process can cleanly isolate and terminate it without hanging.
+        F2 [P1]: Run a non-cooperative STT test in an isolated child process with an external timeout.
+        Verifies that:
+          1. The pipeline times out and terminates the hung STT child process.
+          2. No running workers or hung child processes remain (has_running_workers() == False).
+          3. A subsequent rerun in the SAME child process succeeds cleanly.
+          4. Exits with code 42 upon complete success.
         """
         code = """
 import sys, time
 sys.path.insert(0, ".")
 from src.pipeline import SpeechPipeline
+from src.stt import UncooperativeSttEngine, IsolatedSttEngine
 
-class HungStt:
-    def transcribe(self, samples, sr, is_warmup=False, abort_event=None):
-        while True:
-            time.sleep(1.0)
-
-p = SpeechPipeline()
-p.stt = HungStt()
+p = SpeechPipeline(stt=UncooperativeSttEngine(hang_seconds=10.0))
 try:
     p.run_replay("logs/test_fixtures/temp_forced_cutoff.wav", speed=100.0, run_id="child_hung")
 except TimeoutError:
+    if p.has_running_workers():
+        sys.exit(1)
+    if p.stt.is_child_alive():
+        sys.exit(2)
+    # Verify rerun in same process
+    p.stt = IsolatedSttEngine()
+    res = p.run_replay("logs/test_fixtures/temp_forced_cutoff.wav", speed=100.0, run_id="child_rerun")
+    if res.status != "OK" or p.has_running_workers():
+        sys.exit(3)
+    p.close()
     sys.exit(42)
+sys.exit(99)
 """
         proc = subprocess.Popen([sys.executable, "-c", code], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         try:
-            stdout, stderr = proc.communicate(timeout=6.0)
-            self.assertEqual(proc.returncode, 42, f"Expected returncode 42 (TimeoutError), got {proc.returncode}")
+            stdout, stderr = proc.communicate(timeout=8.0)
+            self.assertEqual(proc.returncode, 42, f"Expected returncode 42 (TimeoutError + clean rerun), got {proc.returncode}. Stderr: {stderr.decode()}")
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.communicate()

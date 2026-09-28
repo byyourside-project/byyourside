@@ -72,3 +72,288 @@ class SttEngine:
         if self.total_audio_seconds <= 0:
             return 0.0
         return self.total_inference_time_seconds / self.total_audio_seconds
+
+
+def _stt_process_worker_loop(
+    config: SttConfig,
+    conn: Any,
+    initial_uncooperative_delay: float = 0.0
+):
+    """
+    Child process worker loop.
+    Instantiates SenseVoice ONNX model in its own process space (macOS spawn safe).
+    Processes IPC transcribe requests sequentially without reloading the model.
+    """
+    try:
+        engine = SttEngine(config)
+        conn.send(("ready", engine.cold_start_load_time_ms))
+    except Exception as e:
+        try:
+            conn.send(("error", str(e)))
+        except Exception:
+            pass
+        return
+
+    uncooperative_delay = initial_uncooperative_delay
+
+    while True:
+        try:
+            if not conn.poll(timeout=0.1):
+                continue
+            msg = conn.recv()
+        except (EOFError, KeyboardInterrupt):
+            break
+        except Exception:
+            break
+
+        cmd = msg[0]
+        if cmd == "transcribe":
+            req_id, samples, sample_rate, is_warmup = msg[1], msg[2], msg[3], msg[4]
+            if uncooperative_delay > 0:
+                # Simulates uncooperative native inference hang (e.g. C/ONNX stuck in decode_stream)
+                # Does NOT check any cancellation token, strictly hangs for specified duration
+                time.sleep(uncooperative_delay)
+            try:
+                text, infer_ms = engine.transcribe(samples, sample_rate, is_warmup=is_warmup)
+                conn.send(("result", req_id, text, infer_ms))
+            except Exception as e:
+                try:
+                    conn.send(("result_error", req_id, str(e)))
+                except Exception:
+                    break
+
+        elif cmd == "set_uncooperative_delay":
+            uncooperative_delay = float(msg[1])
+            conn.send(("delay_set", uncooperative_delay))
+
+        elif cmd == "warm_up":
+            duration_sec = msg[1]
+            infer_ms = engine.warm_up(duration_sec)
+            conn.send(("warm_up_result", infer_ms))
+
+        elif cmd == "get_stats":
+            conn.send(("stats", engine.inference_count, engine.total_audio_seconds, engine.total_inference_time_seconds, engine.cumulative_rtf))
+
+        elif cmd == "stop":
+            try:
+                conn.send(("stopped",))
+            except Exception:
+                pass
+            break
+
+
+class IsolatedSttEngine:
+    """
+    Process-isolated STT Engine.
+    Executes SenseVoice ONNX in a dedicated child process spawned via multiprocessing.
+    Guarantees:
+      1. Hard termination via SIGTERM/SIGKILL if inference hangs or exceeds deadline.
+      2. No zombie worker threads left alive in parent process.
+      3. Clean restartability within the same parent process.
+      4. macOS spawn safety.
+      5. Reuses the model process across utterances without per-utterance reload.
+    """
+
+    def __init__(self, config: Optional[SttConfig] = None, uncooperative_hang_sec: float = 0.0):
+        self.config = config or SttConfig()
+        self.config.validate()
+        self.initial_uncooperative_delay = uncooperative_hang_sec
+        import multiprocessing
+        self._mp_ctx = multiprocessing.get_context("spawn")
+        self._proc: Optional[multiprocessing.Process] = None
+        self._conn: Optional[Any] = None
+        import threading
+        self._lock = threading.Lock()
+        self.cold_start_load_time_ms = 0.0
+        self.inference_count = 0
+        self.total_audio_seconds = 0.0
+        self.total_inference_time_seconds = 0.0
+        self._req_counter = 0
+
+        self.ensure_started()
+
+    def is_child_alive(self) -> bool:
+        with self._lock:
+            return self._proc is not None and self._proc.is_alive()
+
+    @property
+    def child_pid(self) -> Optional[int]:
+        with self._lock:
+            return self._proc.pid if self._proc is not None else None
+
+    def ensure_started(self) -> None:
+        with self._lock:
+            if self._proc is not None and self._proc.is_alive():
+                return
+            self._cleanup_conn_locked()
+            parent_conn, child_conn = self._mp_ctx.Pipe(duplex=True)
+            self._proc = self._mp_ctx.Process(
+                target=_stt_process_worker_loop,
+                args=(self.config, child_conn, self.initial_uncooperative_delay),
+                name="stt_isolated_worker",
+                daemon=True
+            )
+            self._proc.start()
+            child_conn.close()
+            self._conn = parent_conn
+
+            if not self._conn.poll(timeout=15.0):
+                self._terminate_locked()
+                raise TimeoutError("STT worker process failed to initialize within 15.0s")
+
+            try:
+                status, val = self._conn.recv()
+            except Exception as e:
+                self._terminate_locked()
+                raise RuntimeError("STT worker process failed during startup handshake") from e
+
+            if status == "error":
+                self._terminate_locked()
+                raise RuntimeError(f"STT worker process failed to start: {val}")
+            self.cold_start_load_time_ms = val
+
+    def inject_uncooperative_delay(self, delay_sec: float) -> None:
+        """Inject uncooperative delay in the child process to simulate non-cooperative native hang."""
+        self.ensure_started()
+        with self._lock:
+            if self._conn is not None:
+                self._conn.send(("set_uncooperative_delay", delay_sec))
+                if self._conn.poll(timeout=2.0):
+                    self._conn.recv()
+
+    def clear_uncooperative_delay(self) -> None:
+        """Clear any injected uncooperative delay in the child process."""
+        self.inject_uncooperative_delay(0.0)
+
+    def transcribe(
+        self,
+        samples: np.ndarray,
+        sample_rate: int = 16000,
+        is_warmup: bool = False,
+        abort_event: Optional[Any] = None,
+        timeout: Optional[float] = None
+    ) -> Tuple[str, float]:
+        if abort_event is not None and getattr(abort_event, "is_set", lambda: False)():
+            return "", 0.0
+
+        self.ensure_started()
+
+        with self._lock:
+            self._req_counter += 1
+            req_id = self._req_counter
+            if samples.dtype != np.float32:
+                samples = samples.astype(np.float32)
+
+            try:
+                self._conn.send(("transcribe", req_id, samples, sample_rate, is_warmup))
+            except (BrokenPipeError, EOFError, OSError) as e:
+                self._terminate_locked()
+                raise RuntimeError("STT worker process connection failed") from e
+
+            poll_interval = 0.02
+            deadline = (time.perf_counter() + timeout) if timeout else None
+
+            while True:
+                if abort_event is not None and abort_event.is_set():
+                    self._terminate_locked()
+                    return "", 0.0
+
+                if deadline and time.perf_counter() > deadline:
+                    self._terminate_locked()
+                    raise TimeoutError(f"STT inference timed out after {timeout}s")
+
+                if self._proc is None or not self._proc.is_alive():
+                    self._terminate_locked()
+                    raise RuntimeError("STT worker process died unexpectedly during inference")
+
+                if self._conn.poll(timeout=poll_interval):
+                    try:
+                        msg = self._conn.recv()
+                    except (EOFError, BrokenPipeError) as e:
+                        self._terminate_locked()
+                        raise RuntimeError("STT worker process terminated prematurely") from e
+
+                    if msg[0] == "result":
+                        _, res_req_id, text, infer_ms = msg
+                        if res_req_id == req_id:
+                            if not is_warmup:
+                                self.inference_count += 1
+                                audio_dur = len(samples) / float(sample_rate)
+                                self.total_audio_seconds += audio_dur
+                                self.total_inference_time_seconds += (infer_ms / 1000.0)
+                            return text, infer_ms
+                    elif msg[0] == "result_error":
+                        raise RuntimeError(f"STT inference error: {msg[2]}")
+
+    def warm_up(self, duration_seconds: float = 1.0) -> float:
+        self.ensure_started()
+        with self._lock:
+            self._conn.send(("warm_up", duration_seconds))
+            if self._conn.poll(timeout=10.0):
+                msg = self._conn.recv()
+                if msg[0] == "warm_up_result":
+                    return msg[1]
+            return 0.0
+
+    @property
+    def cumulative_rtf(self) -> float:
+        if self.total_audio_seconds <= 0:
+            return 0.0
+        return self.total_inference_time_seconds / self.total_audio_seconds
+
+    def terminate(self) -> None:
+        """Forcibly terminate child process and clean up IPC."""
+        with self._lock:
+            self._terminate_locked()
+
+    def _terminate_locked(self) -> None:
+        if self._proc is not None:
+            if self._proc.is_alive():
+                self._proc.terminate()
+                self._proc.join(timeout=0.5)
+                if self._proc.is_alive():
+                    self._proc.kill()
+                    self._proc.join(timeout=0.5)
+            self._proc = None
+        self._cleanup_conn_locked()
+
+    def close(self) -> None:
+        """Orderly shutdown of child process."""
+        with self._lock:
+            if self._proc is not None and self._proc.is_alive() and self._conn is not None:
+                try:
+                    self._conn.send(("stop",))
+                    if self._conn.poll(timeout=1.0):
+                        self._conn.recv()
+                except Exception:
+                    pass
+                self._proc.join(timeout=1.0)
+                if self._proc.is_alive():
+                    self._proc.terminate()
+                    self._proc.join(timeout=0.5)
+            self._proc = None
+            self._cleanup_conn_locked()
+
+    def _cleanup_conn_locked(self) -> None:
+        if self._conn is not None:
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+            self._conn = None
+
+    def __del__(self):
+        try:
+            self.terminate()
+        except Exception:
+            pass
+
+
+class UncooperativeSttEngine(IsolatedSttEngine):
+    """
+    STT Engine variant that strictly hangs on transcribe without checking any abort token.
+    Used for deterministic validation of process-level timeout and parent recovery.
+    """
+    def __init__(self, config: Optional[SttConfig] = None, hang_seconds: float = 10.0):
+        super().__init__(config=config, uncooperative_hang_sec=hang_seconds)
+

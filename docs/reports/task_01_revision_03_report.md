@@ -1,5 +1,9 @@
 # Task 01 Revision 03 — 전체 구간 보존 및 검수 근거 보완 보고서
 
+> [!IMPORTANT]
+> **Revision 04 보완 완료 안내 (2026-09-28)**:
+> Revision 03 PM 검수([docs/reports/task_01_revision_03_pm_review.md](file:///Users/jwlee/study1/byyourside/docs/reports/task_01_revision_03_pm_review.md)) 및 지시서([docs/pm/task_01_revision_04.md](file:///Users/jwlee/study1/byyourside/docs/pm/task_01_revision_04.md))에 따라 비협력적 native 추론의 프로세스 격리(`IsolatedSttEngine`), 강제 회수(SIGTERM/SIGKILL), 동일 부모 프로세스에서의 정상 재실행 및 보고서 정정이 완료되었습니다. 최신 결과는 [docs/reports/task_01_revision_04_report.md](file:///Users/jwlee/study1/byyourside/docs/reports/task_01_revision_04_report.md)를 참조하십시오.
+
 - 작성일: 2026-09-28
 - 작업 ID: Task 01 Revision 03 (F1 하드 컷 전체 구간 보존, F2 timeout/취소 후 worker 정리, F3 큐 대기 시간 보존, F4 60초 smoke와 10분 gate 분리)
 - 대상 커밋: `c411020` (및 후속 수정)
