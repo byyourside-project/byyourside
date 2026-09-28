@@ -1,5 +1,6 @@
 import os
 import queue
+import subprocess
 import threading
 import time
 import uuid
@@ -15,6 +16,18 @@ from src.stt import SttEngine
 from src.logger import StructuredLogger
 from src.metrics import calculate_percentiles, get_memory_stats
 from src.audio_utils import load_and_normalize_audio
+
+def get_git_revision() -> str:
+    """Retrieve short git commit hash for benchmark provenance."""
+    try:
+        rev = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            stderr=subprocess.DEVNULL
+        ).decode().strip()
+        return rev
+    except Exception:
+        return "unknown"
+
 
 @dataclass
 class AudioChunk:
@@ -295,13 +308,16 @@ class SpeechPipeline:
         artificial_stt_delay_sec: float = 0.0
     ) -> PipelineResult:
         """
-        Simulated streaming replay mode.
+        Simulated streaming replay mode (Revision 02).
         Feeds audio chunks at exact real-time speed (1.0x) to evaluate queue dynamics and post-speech latency.
-        Strict sentinel-based termination guarantees zero race conditions on stream end.
+        Strict sentinel-based termination with abort_event guarantees zero race conditions or hangs.
         """
         run_id = run_id or f"replay_{uuid.uuid4().hex[:8]}"
         samples, sr = load_and_normalize_audio(wav_path, target_sr=16000)
         total_audio_dur = len(samples) / float(sr)
+
+        stream_start_wall_ts = time.perf_counter()
+        clock_origin_time = time.time()
 
         logger = StructuredLogger(run_id=run_id, log_dir=self.config.log_dir)
         logger.log_event("run_start", {
@@ -310,11 +326,17 @@ class SpeechPipeline:
             "sample_rate": sr,
             "speed": speed,
             "total_audio_seconds": round(total_audio_dur, 3),
-            "artificial_delay_sec": artificial_stt_delay_sec
+            "artificial_delay_sec": artificial_stt_delay_sec,
+            "git_revision": get_git_revision(),
+            "clock_origin_perf_counter": stream_start_wall_ts,
+            "clock_origin_time": clock_origin_time,
+            "vad_config": self.config.vad.__dict__,
+            "queue_config": self.config.queue.__dict__,
         })
 
         audio_queue: queue.Queue = queue.Queue(maxsize=self.config.queue.max_audio_queue_size)
         segment_queue: queue.Queue = queue.Queue(maxsize=self.config.queue.max_segment_queue_size)
+        abort_event = threading.Event()
 
         dropped_items: List[DroppedItem] = []
         dropped_audio_chunks = 0
@@ -339,59 +361,87 @@ class SpeechPipeline:
             nonlocal vad_exception, dropped_segments_count
             try:
                 self.vad.reset()
-                while True:
-                    item = audio_queue.get()
+                while not abort_event.is_set():
+                    try:
+                        item = audio_queue.get(timeout=0.1)
+                    except queue.Empty:
+                        continue
+
                     if item is SENTINEL:
                         audio_queue.task_done()
                         break
 
                     chunk_item: AudioChunk = item
-                    ready_segs = self.vad.process_chunk(chunk_item.samples)
+                    # C [P1] Pass stream_sample_idx_start to detect gaps from dropped audio
+                    ready_segs = self.vad.process_chunk(
+                        chunk_item.samples,
+                        stream_sample_idx_start=chunk_item.stream_sample_idx_start
+                    )
                     for seg in ready_segs:
-                        try:
-                            segment_queue.put(seg, timeout=self.config.queue.put_timeout)
-                        except queue.Full:
-                            dropped_segments_count += 1
-                            dropped_items.append(DroppedItem(
-                                item_type="segment",
-                                item_id=seg.segment_id,
-                                stream_sample_start=seg.start_sample,
-                                stream_sample_end=seg.end_sample,
-                                duration_ms=seg.duration_ms,
-                                reason="segment_queue_full",
-                                drop_ts=time.perf_counter()
-                            ))
+                        while not abort_event.is_set():
+                            try:
+                                segment_queue.put(seg, timeout=self.config.queue.put_timeout)
+                                break
+                            except queue.Full:
+                                dropped_segments_count += 1
+                                dropped_items.append(DroppedItem(
+                                    item_type="segment",
+                                    item_id=seg.segment_id,
+                                    stream_sample_start=seg.start_sample,
+                                    stream_sample_end=seg.end_sample,
+                                    duration_ms=seg.duration_ms,
+                                    reason="segment_queue_full",
+                                    drop_ts=time.perf_counter()
+                                ))
+                                break
                     audio_queue.task_done()
 
-                # Stream ended: flush remaining VAD speech
-                flushed_segs = self.vad.flush()
-                for seg in flushed_segs:
-                    try:
-                        segment_queue.put(seg, timeout=self.config.queue.put_timeout)
-                    except queue.Full:
-                        dropped_segments_count += 1
-                        dropped_items.append(DroppedItem(
-                            item_type="segment",
-                            item_id=seg.segment_id,
-                            stream_sample_start=seg.start_sample,
-                            stream_sample_end=seg.end_sample,
-                            duration_ms=seg.duration_ms,
-                            reason="segment_queue_full_on_flush",
-                            drop_ts=time.perf_counter()
-                        ))
+                if not abort_event.is_set():
+                    # Stream ended normally: flush remaining VAD speech
+                    flushed_segs = self.vad.flush()
+                    for seg in flushed_segs:
+                        while not abort_event.is_set():
+                            try:
+                                segment_queue.put(seg, timeout=self.config.queue.put_timeout)
+                                break
+                            except queue.Full:
+                                dropped_segments_count += 1
+                                dropped_items.append(DroppedItem(
+                                    item_type="segment",
+                                    item_id=seg.segment_id,
+                                    stream_sample_start=seg.start_sample,
+                                    stream_sample_end=seg.end_sample,
+                                    duration_ms=seg.duration_ms,
+                                    reason="segment_queue_full_on_flush",
+                                    drop_ts=time.perf_counter()
+                                ))
+                                break
 
-                # Notify STT worker to terminate after all segments are drained
-                segment_queue.put(SENTINEL)
+                    # Notify STT worker to terminate after segments are drained
+                    while not abort_event.is_set():
+                        try:
+                            segment_queue.put(SENTINEL, timeout=0.1)
+                            break
+                        except queue.Full:
+                            continue
             except Exception as e:
                 vad_exception = e
-                segment_queue.put(SENTINEL)
+                abort_event.set()
+                try:
+                    segment_queue.put_nowait(SENTINEL)
+                except Exception:
+                    pass
 
         # Worker 2: STT worker
-        def stt_worker(stream_start_wall_ts: float):
+        def stt_worker():
             nonlocal stt_exception, total_infer_sec, total_speech_sec
             try:
-                while True:
-                    item = segment_queue.get()
+                while not abort_event.is_set():
+                    try:
+                        item = segment_queue.get(timeout=0.1)
+                    except queue.Empty:
+                        continue
+
                     if item is SENTINEL:
                         segment_queue.task_done()
                         break
@@ -401,7 +451,15 @@ class SpeechPipeline:
                     queue_wait_ms = (stt_start_ts - seg.ready_ts) * 1000.0
 
                     if artificial_stt_delay_sec > 0:
-                        time.sleep(artificial_stt_delay_sec)
+                        sleep_start = time.perf_counter()
+                        while time.perf_counter() - sleep_start < artificial_stt_delay_sec:
+                            if abort_event.is_set():
+                                break
+                            time.sleep(min(0.05, artificial_stt_delay_sec - (time.perf_counter() - sleep_start)))
+
+                    if abort_event.is_set():
+                        segment_queue.task_done()
+                        break
 
                     text, infer_ms = self.stt.transcribe(seg.samples, 16000)
                     stt_end_ts = time.perf_counter()
@@ -413,14 +471,13 @@ class SpeechPipeline:
                     total_speech_sec += seg_dur_sec
                     rtf = infer_sec / seg_dur_sec if seg_dur_sec > 0 else 0.0
 
-                    # R1 Fixed Latency Calculations:
-                    # In 1.0x replay, sample S was played at: stream_start_wall_ts + (S / 16000.0) / speed
+                    # Latency calculations in replay mode:
                     audio_speech_end_wall_ts = stream_start_wall_ts + (seg.end_sample / float(sr)) / speed
                     audio_speech_start_wall_ts = stream_start_wall_ts + (seg.start_sample / float(sr)) / speed
 
-                    # 1. Post-speech delay: from moment speech actually ended in audio clock to result emission
+                    # Post-speech delay (VAD-estimated endpoint to emission)
                     delay_after_speech_ms = (result_emit_ts - audio_speech_end_wall_ts) * 1000.0
-                    # 2. Continuous latency: from segment speech start to result emission
+                    # Continuous latency from speech onset to emission
                     latency_from_start_ms = (result_emit_ts - audio_speech_start_wall_ts) * 1000.0
 
                     rtf_list.append(rtf)
@@ -462,118 +519,149 @@ class SpeechPipeline:
                     segment_queue.task_done()
             except Exception as e:
                 stt_exception = e
+                abort_event.set()
 
-        stream_start_ts = time.perf_counter()
         t_vad = threading.Thread(target=vad_worker, daemon=True)
-        t_stt = threading.Thread(target=stt_worker, args=(stream_start_ts,), daemon=True)
+        t_stt = threading.Thread(target=stt_worker, daemon=True)
         t_vad.start()
         t_stt.start()
 
-        # Feeder loop: feed window_size chunks at real-time pace
         chunk_size = self.config.vad.window_size
         stream_sample_idx = 0
         chunk_idx = 0
 
-        for i in range(0, len(samples), chunk_size):
-            chunk = samples[i:i + chunk_size]
-            if len(chunk) < chunk_size:
-                chunk = np.pad(chunk, (0, chunk_size - len(chunk)))
-
-            chunk_idx += 1
-            chunk_start = stream_sample_idx
-            stream_sample_idx += len(chunk)
-            chunk_end = stream_sample_idx
-
-            now = time.perf_counter()
-            item = AudioChunk(
-                samples=chunk,
-                sample_rate=16000,
-                capture_ts=now,
-                stream_sample_idx_start=chunk_start,
-                stream_sample_idx_end=chunk_end
-            )
-
+        try:
             try:
-                audio_queue.put(item, timeout=self.config.queue.put_timeout)
-            except queue.Full:
-                dropped_audio_chunks += 1
-                dropped_audio_samples += len(chunk)
-                dropped_items.append(DroppedItem(
-                    item_type="audio_chunk",
-                    item_id=chunk_idx,
-                    stream_sample_start=chunk_start,
-                    stream_sample_end=chunk_end,
-                    duration_ms=(len(chunk) / 16000.0) * 1000.0,
-                    reason="audio_queue_full",
-                    drop_ts=now
-                ))
+                for i in range(0, len(samples), chunk_size):
+                    if abort_event.is_set():
+                        break
 
-            # Maintain real-time clock pacing
-            target_elapsed = (stream_sample_idx / float(sr)) / speed
-            actual_elapsed = time.perf_counter() - stream_start_ts
-            sleep_needed = target_elapsed - actual_elapsed
-            if sleep_needed > 0.001:
-                time.sleep(sleep_needed)
+                    chunk = samples[i:i + chunk_size]
+                    if len(chunk) < chunk_size:
+                        chunk = np.pad(chunk, (0, chunk_size - len(chunk)))
 
-        # Send sentinel to VAD worker and wait for clean completion
-        audio_queue.put(SENTINEL)
+                    chunk_idx += 1
+                    chunk_start = stream_sample_idx
+                    stream_sample_idx += len(chunk)
+                    chunk_end = stream_sample_idx
 
-        t_vad.join(timeout=10.0)
-        if t_vad.is_alive():
-            raise TimeoutError("VAD worker failed to terminate within 10s")
+                    # D [P2] Pacing: Wait until audio clock physically reaches chunk_end before feeding
+                    target_available_ts = stream_start_wall_ts + (chunk_end / float(sr)) / speed
+                    sleep_needed = target_available_ts - time.perf_counter()
+                    if sleep_needed > 0.0005:
+                        time.sleep(sleep_needed)
 
-        t_stt.join(timeout=20.0)
-        if t_stt.is_alive():
-            raise TimeoutError("STT worker failed to terminate within 20s")
+                    if abort_event.is_set():
+                        break
 
-        if vad_exception:
-            raise RuntimeError(f"VAD worker failed with exception: {vad_exception}")
-        if stt_exception:
-            raise RuntimeError(f"STT worker failed with exception: {stt_exception}")
+                    now = time.perf_counter()
+                    item = AudioChunk(
+                        samples=chunk,
+                        sample_rate=16000,
+                        capture_ts=now,
+                        stream_sample_idx_start=chunk_start,
+                        stream_sample_idx_end=chunk_end
+                    )
 
-        mem = get_memory_stats()
-        speech_rtf = total_infer_sec / total_speech_sec if total_speech_sec > 0 else 0.0
-        throughput_rtf = total_infer_sec / total_audio_dur if total_audio_dur > 0 else 0.0
-        is_lossless = (dropped_audio_chunks == 0) and (dropped_segments_count == 0)
+                    try:
+                        audio_queue.put(item, timeout=self.config.queue.put_timeout)
+                    except queue.Full:
+                        dropped_audio_chunks += 1
+                        dropped_audio_samples += len(chunk)
+                        dropped_items.append(DroppedItem(
+                            item_type="audio_chunk",
+                            item_id=chunk_idx,
+                            stream_sample_start=chunk_start,
+                            stream_sample_end=chunk_end,
+                            duration_ms=(len(chunk) / 16000.0) * 1000.0,
+                            reason="audio_queue_full",
+                            drop_ts=now
+                        ))
 
-        logger.log_event("run_summary", {
-            "mode": "replay",
-            "total_audio_seconds": round(total_audio_dur, 3),
-            "total_speech_seconds": round(total_speech_sec, 3),
-            "total_inference_seconds": round(total_infer_sec, 3),
-            "speech_rtf": round(speech_rtf, 4),
-            "throughput_rtf": round(throughput_rtf, 4),
-            "is_lossless": is_lossless,
-            "dropped_audio_chunks": dropped_audio_chunks,
-            "dropped_segments": dropped_segments_count,
-            "memory": mem
-        })
-        logger.close()
+                # Feeder completed: send sentinel to VAD worker unless aborted
+                if not abort_event.is_set():
+                    sentinel_deadline = time.perf_counter() + 2.0
+                    while not abort_event.is_set() and time.perf_counter() < sentinel_deadline:
+                        try:
+                            audio_queue.put(SENTINEL, timeout=0.1)
+                            break
+                        except queue.Full:
+                            continue
+            finally:
+                # B [P1] Clean shutdown guarantee: drain queues on abort and join workers
+                if abort_event.is_set():
+                    while not audio_queue.empty():
+                        try:
+                            audio_queue.get_nowait()
+                            audio_queue.task_done()
+                        except Exception:
+                            break
+                    while not segment_queue.empty():
+                        try:
+                            segment_queue.get_nowait()
+                            segment_queue.task_done()
+                        except Exception:
+                            break
 
-        return PipelineResult(
-            run_id=run_id,
-            mode="replay",
-            total_audio_seconds=total_audio_dur,
-            total_speech_seconds=total_speech_sec,
-            total_inference_seconds=total_infer_sec,
-            speech_rtf=speech_rtf,
-            throughput_rtf=throughput_rtf,
-            segment_count=len(segment_results),
-            is_lossless=is_lossless,
-            status="OK" if is_lossless else "DROPPED",
-            rtf_stats=calculate_percentiles(rtf_list),
-            estimated_delay_stats=calculate_percentiles(estimated_delay_list),
-            continuous_latency_stats=calculate_percentiles(continuous_latency_list),
-            queue_wait_stats=calculate_percentiles(queue_wait_list),
-            overrun_count=0,
-            dropped_audio_chunks=dropped_audio_chunks,
-            dropped_audio_seconds=dropped_audio_samples / 16000.0,
-            dropped_segments=dropped_segments_count,
-            dropped_items=[d.__dict__ for d in dropped_items],
-            current_rss_mb=mem["current_rss_mb"],
-            peak_rss_mb=mem["peak_rss_mb"],
-            segments=segment_results
-        )
+                t_vad.join(timeout=2.0)
+                t_stt.join(timeout=2.0)
+
+            if t_vad.is_alive():
+                raise TimeoutError("VAD worker failed to terminate within 2.0s")
+            if t_stt.is_alive():
+                raise TimeoutError("STT worker failed to terminate within 2.0s")
+
+            if vad_exception:
+                raise RuntimeError(f"VAD worker failed with exception: {vad_exception}") from vad_exception
+            if stt_exception:
+                raise RuntimeError(f"STT worker failed with exception: {stt_exception}") from stt_exception
+
+            mem = get_memory_stats()
+            speech_rtf = total_infer_sec / total_speech_sec if total_speech_sec > 0 else 0.0
+            throughput_rtf = total_infer_sec / total_audio_dur if total_audio_dur > 0 else 0.0
+            is_lossless = (dropped_audio_chunks == 0) and (dropped_segments_count == 0)
+
+            logger.log_event("run_summary", {
+                "mode": "replay",
+                "total_audio_seconds": round(total_audio_dur, 3),
+                "total_speech_seconds": round(total_speech_sec, 3),
+                "total_inference_seconds": round(total_infer_sec, 3),
+                "speech_rtf": round(speech_rtf, 4),
+                "throughput_rtf": round(throughput_rtf, 4),
+                "is_lossless": is_lossless,
+                "dropped_audio_chunks": dropped_audio_chunks,
+                "dropped_segments": dropped_segments_count,
+                "memory": mem
+            })
+
+            return PipelineResult(
+                run_id=run_id,
+                mode="replay",
+                total_audio_seconds=total_audio_dur,
+                total_speech_seconds=total_speech_sec,
+                total_inference_seconds=total_infer_sec,
+                speech_rtf=speech_rtf,
+                throughput_rtf=throughput_rtf,
+                segment_count=len(segment_results),
+                is_lossless=is_lossless,
+                status="OK" if is_lossless else "DROPPED",
+                rtf_stats=calculate_percentiles(rtf_list),
+                estimated_delay_stats=calculate_percentiles(estimated_delay_list),
+                continuous_latency_stats=calculate_percentiles(continuous_latency_list),
+                queue_wait_stats=calculate_percentiles(queue_wait_list),
+                overrun_count=0,
+                dropped_audio_chunks=dropped_audio_chunks,
+                dropped_audio_seconds=dropped_audio_samples / 16000.0,
+                dropped_segments=dropped_segments_count,
+                dropped_items=[d.__dict__ for d in dropped_items],
+                current_rss_mb=mem["current_rss_mb"],
+                peak_rss_mb=mem["peak_rss_mb"],
+                segments=segment_results
+            )
+        finally:
+            logger.close()
+
+
 
     def run_mic(
         self,
@@ -582,29 +670,38 @@ class SpeechPipeline:
         snapshot_interval_sec: float = 60.0
     ) -> PipelineResult:
         """
-        Live microphone recording and real-time STT pipeline.
-        Captures audio at hardware rate (e.g. 48kHz), downsamples via resample_poly to 16kHz,
-        and runs VAD & STT worker threads with strict sentinel termination and loss tracking.
+        Live microphone recording and real-time STT pipeline (Revision 02).
+        Captures audio at hardware rate (e.g. 48kHz) strictly in callback,
+        downsamples via resample_poly in VAD worker thread,
+        and uses abort_event and timeouts for guaranteed clean shutdown under errors.
         """
         run_id = run_id or f"mic_{uuid.uuid4().hex[:8]}"
-        logger = StructuredLogger(run_id=run_id, log_dir=self.config.log_dir)
-
         in_rate = self.config.audio.device_sample_rate   # 48000
         out_rate = self.config.audio.target_sample_rate  # 16000
         gcd = np.gcd(in_rate, out_rate)
         up = out_rate // gcd    # 1
         down = in_rate // gcd  # 3
 
+        stream_start_wall_ts = time.perf_counter()
+        clock_origin_time = time.time()
+
+        logger = StructuredLogger(run_id=run_id, log_dir=self.config.log_dir)
         logger.log_event("run_start", {
             "mode": "mic",
             "duration_seconds": duration_seconds,
             "device_sample_rate": in_rate,
             "target_sample_rate": out_rate,
             "resample_ratio": f"{up}/{down}",
+            "git_revision": get_git_revision(),
+            "clock_origin_perf_counter": stream_start_wall_ts,
+            "clock_origin_time": clock_origin_time,
+            "vad_config": self.config.vad.__dict__,
+            "queue_config": self.config.queue.__dict__,
         })
 
         audio_queue: queue.Queue = queue.Queue(maxsize=self.config.queue.max_audio_queue_size)
         segment_queue: queue.Queue = queue.Queue(maxsize=self.config.queue.max_segment_queue_size)
+        abort_event = threading.Event()
 
         dropped_items: List[DroppedItem] = []
         overrun_count = 0
@@ -612,7 +709,6 @@ class SpeechPipeline:
         dropped_audio_samples = 0
         dropped_segments_count = 0
         total_captured_frames = 0
-        stream_sample_idx = 0
 
         segment_results = []
         rtf_list = []
@@ -627,102 +723,139 @@ class SpeechPipeline:
         stt_exception: Optional[Exception] = None
 
         SENTINEL = object()
-        stream_start_wall_ts = time.perf_counter()
 
+        # D [P2] Decoupled callback: acquisition and queue put ONLY (no heavy DSP/resample)
         def mic_callback(indata, frames, time_info, status):
-            nonlocal overrun_count, dropped_audio_chunks, dropped_audio_samples, total_captured_frames, stream_sample_idx
+            nonlocal overrun_count, dropped_audio_chunks, dropped_audio_samples, total_captured_frames
             if status and status.input_overflow:
                 overrun_count += 1
 
             now = time.perf_counter()
+            start_frame = total_captured_frames
             total_captured_frames += frames
+            end_frame = total_captured_frames
 
-            chunk_48k = indata[:, 0].copy()
-            chunk_start = stream_sample_idx
-            # Resample 48k -> 16k
-            chunk_16k = signal.resample_poly(chunk_48k, up, down).astype(np.float32)
-            stream_sample_idx += len(chunk_16k)
-            chunk_end = stream_sample_idx
+            # Map raw frames to 16kHz target sample indices
+            start_sample_16k = int(round(start_frame * out_rate / float(in_rate)))
+            end_sample_16k = int(round(end_frame * out_rate / float(in_rate)))
+
+            chunk_native = indata[:, 0].copy()
 
             item = AudioChunk(
-                samples=chunk_16k,
-                sample_rate=out_rate,
+                samples=chunk_native,
+                sample_rate=in_rate,
                 capture_ts=now,
-                stream_sample_idx_start=chunk_start,
-                stream_sample_idx_end=chunk_end
+                stream_sample_idx_start=start_sample_16k,
+                stream_sample_idx_end=end_sample_16k
             )
 
             try:
                 audio_queue.put_nowait(item)
             except queue.Full:
                 dropped_audio_chunks += 1
-                dropped_audio_samples += len(chunk_16k)
+                dropped_len = end_sample_16k - start_sample_16k
+                dropped_audio_samples += dropped_len
                 dropped_items.append(DroppedItem(
                     item_type="audio_chunk",
                     item_id=total_captured_frames // frames,
-                    stream_sample_start=chunk_start,
-                    stream_sample_end=chunk_end,
-                    duration_ms=(len(chunk_16k) / 16000.0) * 1000.0,
+                    stream_sample_start=start_sample_16k,
+                    stream_sample_end=end_sample_16k,
+                    duration_ms=(dropped_len / float(out_rate)) * 1000.0,
                     reason="audio_queue_full",
                     drop_ts=now
                 ))
 
-        # Worker 1: VAD worker
+        # Worker 1: VAD worker (performs resampling and gap detection)
         def vad_worker():
             nonlocal vad_exception, dropped_segments_count
             try:
                 self.vad.reset()
-                while True:
-                    item = audio_queue.get()
+                while not abort_event.is_set():
+                    try:
+                        item = audio_queue.get(timeout=0.1)
+                    except queue.Empty:
+                        continue
+
                     if item is SENTINEL:
                         audio_queue.task_done()
                         break
 
                     chunk_item: AudioChunk = item
-                    ready_segs = self.vad.process_chunk(chunk_item.samples)
+
+                    # Resample in VAD worker thread (offload from audio callback)
+                    if chunk_item.sample_rate != out_rate:
+                        samples_16k = signal.resample_poly(chunk_item.samples, up, down).astype(np.float32)
+                    else:
+                        samples_16k = chunk_item.samples
+
+                    # Pass stream_sample_idx_start to detect gaps from dropped audio chunks
+                    ready_segs = self.vad.process_chunk(
+                        samples_16k,
+                        stream_sample_idx_start=chunk_item.stream_sample_idx_start
+                    )
                     for seg in ready_segs:
-                        try:
-                            segment_queue.put(seg, timeout=self.config.queue.put_timeout)
-                        except queue.Full:
-                            dropped_segments_count += 1
-                            dropped_items.append(DroppedItem(
-                                item_type="segment",
-                                item_id=seg.segment_id,
-                                stream_sample_start=seg.start_sample,
-                                stream_sample_end=seg.end_sample,
-                                duration_ms=seg.duration_ms,
-                                reason="segment_queue_full",
-                                drop_ts=time.perf_counter()
-                            ))
+                        while not abort_event.is_set():
+                            try:
+                                segment_queue.put(seg, timeout=self.config.queue.put_timeout)
+                                break
+                            except queue.Full:
+                                dropped_segments_count += 1
+                                dropped_items.append(DroppedItem(
+                                    item_type="segment",
+                                    item_id=seg.segment_id,
+                                    stream_sample_start=seg.start_sample,
+                                    stream_sample_end=seg.end_sample,
+                                    duration_ms=seg.duration_ms,
+                                    reason="segment_queue_full",
+                                    drop_ts=time.perf_counter()
+                                ))
+                                break
                     audio_queue.task_done()
 
-                flushed_segs = self.vad.flush()
-                for seg in flushed_segs:
-                    try:
-                        segment_queue.put(seg, timeout=self.config.queue.put_timeout)
-                    except queue.Full:
-                        dropped_segments_count += 1
-                        dropped_items.append(DroppedItem(
-                            item_type="segment",
-                            item_id=seg.segment_id,
-                            stream_sample_start=seg.start_sample,
-                            stream_sample_end=seg.end_sample,
-                            duration_ms=seg.duration_ms,
-                            reason="segment_queue_full_on_flush",
-                            drop_ts=time.perf_counter()
-                        ))
+                if not abort_event.is_set():
+                    flushed_segs = self.vad.flush()
+                    for seg in flushed_segs:
+                        while not abort_event.is_set():
+                            try:
+                                segment_queue.put(seg, timeout=self.config.queue.put_timeout)
+                                break
+                            except queue.Full:
+                                dropped_segments_count += 1
+                                dropped_items.append(DroppedItem(
+                                    item_type="segment",
+                                    item_id=seg.segment_id,
+                                    stream_sample_start=seg.start_sample,
+                                    stream_sample_end=seg.end_sample,
+                                    duration_ms=seg.duration_ms,
+                                    reason="segment_queue_full_on_flush",
+                                    drop_ts=time.perf_counter()
+                                ))
+                                break
 
-                segment_queue.put(SENTINEL)
+                    while not abort_event.is_set():
+                        try:
+                            segment_queue.put(SENTINEL, timeout=0.1)
+                            break
+                        except queue.Full:
+                            continue
             except Exception as e:
                 vad_exception = e
-                segment_queue.put(SENTINEL)
+                abort_event.set()
+                try:
+                    segment_queue.put_nowait(SENTINEL)
+                except Exception:
+                    pass
 
         # Worker 2: STT worker
         def stt_worker():
             nonlocal stt_exception, total_infer_sec, total_speech_sec
             try:
-                while True:
-                    item = segment_queue.get()
+                while not abort_event.is_set():
+                    try:
+                        item = segment_queue.get(timeout=0.1)
+                    except queue.Empty:
+                        continue
+
                     if item is SENTINEL:
                         segment_queue.task_done()
                         break
@@ -741,8 +874,6 @@ class SpeechPipeline:
                     total_speech_sec += seg_dur_sec
                     rtf = infer_sec / seg_dur_sec if seg_dur_sec > 0 else 0.0
 
-                    # R1 Fixed Latency Calculations:
-                    # In live mic, sample S occurred at: stream_start_wall_ts + (S / 16000.0)
                     audio_speech_end_wall_ts = stream_start_wall_ts + (seg.end_sample / 16000.0)
                     audio_speech_start_wall_ts = stream_start_wall_ts + (seg.start_sample / 16000.0)
 
@@ -788,6 +919,7 @@ class SpeechPipeline:
                     segment_queue.task_done()
             except Exception as e:
                 stt_exception = e
+                abort_event.set()
 
         t_vad = threading.Thread(target=vad_worker, daemon=True)
         t_stt = threading.Thread(target=stt_worker, daemon=True)
@@ -798,95 +930,124 @@ class SpeechPipeline:
         start_wall_time = time.time()
         last_snapshot_time = start_wall_time
 
-        with sd.InputStream(
-            samplerate=in_rate,
-            channels=1,
-            dtype="float32",
-            blocksize=blocksize,
-            callback=mic_callback
-        ):
-            while time.time() - start_wall_time < duration_seconds:
-                time.sleep(0.5)
-                now = time.time()
-                if now - last_snapshot_time >= snapshot_interval_sec:
-                    elapsed = now - start_wall_time
-                    mem = get_memory_stats()
-                    snapshot = {
-                        "elapsed_seconds": round(elapsed, 1),
-                        "current_rss_mb": mem["current_rss_mb"],
-                        "peak_rss_mb": mem["peak_rss_mb"],
-                        "audio_queue_size": audio_queue.qsize(),
-                        "segment_queue_size": segment_queue.qsize(),
-                        "overrun_count": overrun_count,
-                        "dropped_chunks": dropped_audio_chunks,
-                        "dropped_segments": dropped_segments_count,
-                        "segments_so_far": len(segment_results)
-                    }
-                    periodic_snapshots.append(snapshot)
-                    print(f"[MIC Monitor] {elapsed:5.1f}s / {duration_seconds}s | "
-                          f"CurRSS: {mem['current_rss_mb']:5.1f}MB | PeakRSS: {mem['peak_rss_mb']:5.1f}MB | "
-                          f"Overruns: {overrun_count} | Drops: {dropped_audio_chunks} | Segments: {len(segment_results)}")
-                    last_snapshot_time = now
+        try:
+            try:
+                with sd.InputStream(
+                    samplerate=in_rate,
+                    channels=1,
+                    dtype="float32",
+                    blocksize=blocksize,
+                    callback=mic_callback
+                ):
+                    while time.time() - start_wall_time < duration_seconds:
+                        if abort_event.is_set():
+                            break
+                        time.sleep(0.2)
+                        now = time.time()
+                        if now - last_snapshot_time >= snapshot_interval_sec:
+                            elapsed = now - start_wall_time
+                            mem = get_memory_stats()
+                            snapshot = {
+                                "elapsed_seconds": round(elapsed, 1),
+                                "current_rss_mb": mem["current_rss_mb"],
+                                "peak_rss_mb": mem["peak_rss_mb"],
+                                "audio_queue_size": audio_queue.qsize(),
+                                "segment_queue_size": segment_queue.qsize(),
+                                "overrun_count": overrun_count,
+                                "dropped_chunks": dropped_audio_chunks,
+                                "dropped_segments": dropped_segments_count,
+                                "segments_so_far": len(segment_results)
+                            }
+                            periodic_snapshots.append(snapshot)
+                            print(f"[MIC Monitor] {elapsed:5.1f}s / {duration_seconds}s | "
+                                  f"CurRSS: {mem['current_rss_mb']:5.1f}MB | PeakRSS: {mem['peak_rss_mb']:5.1f}MB | "
+                                  f"Overruns: {overrun_count} | Drops: {dropped_audio_chunks} | Segments: {len(segment_results)}")
+                            last_snapshot_time = now
+            except Exception as e:
+                abort_event.set()
+                raise
+            finally:
+                if not abort_event.is_set():
+                    sentinel_deadline = time.perf_counter() + 2.0
+                    while not abort_event.is_set() and time.perf_counter() < sentinel_deadline:
+                        try:
+                            audio_queue.put(SENTINEL, timeout=0.1)
+                            break
+                        except queue.Full:
+                            continue
+                else:
+                    while not audio_queue.empty():
+                        try:
+                            audio_queue.get_nowait()
+                            audio_queue.task_done()
+                        except Exception:
+                            break
+                    while not segment_queue.empty():
+                        try:
+                            segment_queue.get_nowait()
+                            segment_queue.task_done()
+                        except Exception:
+                            break
 
-        # Stream capture ended: clean shutdown via sentinel
-        audio_queue.put(SENTINEL)
+                t_vad.join(timeout=2.0)
+                t_stt.join(timeout=2.0)
 
-        t_vad.join(timeout=10.0)
-        if t_vad.is_alive():
-            raise TimeoutError("VAD worker failed to terminate within 10s")
+            if t_vad.is_alive():
+                raise TimeoutError("VAD worker failed to terminate within 2.0s")
+            if t_stt.is_alive():
+                raise TimeoutError("STT worker failed to terminate within 2.0s")
 
-        t_stt.join(timeout=20.0)
-        if t_stt.is_alive():
-            raise TimeoutError("STT worker failed to terminate within 20s")
+            if vad_exception:
+                raise RuntimeError(f"VAD worker failed with exception: {vad_exception}") from vad_exception
+            if stt_exception:
+                raise RuntimeError(f"STT worker failed with exception: {stt_exception}") from stt_exception
 
-        if vad_exception:
-            raise RuntimeError(f"VAD worker failed with exception: {vad_exception}")
-        if stt_exception:
-            raise RuntimeError(f"STT worker failed with exception: {stt_exception}")
+            total_audio_sec = total_captured_frames / float(in_rate)
+            speech_rtf = total_infer_sec / total_speech_sec if total_speech_sec > 0 else 0.0
+            throughput_rtf = total_infer_sec / total_audio_sec if total_audio_sec > 0 else 0.0
+            mem = get_memory_stats()
+            is_lossless = (overrun_count == 0) and (dropped_audio_chunks == 0) and (dropped_segments_count == 0)
 
-        total_audio_sec = total_captured_frames / float(in_rate)
-        speech_rtf = total_infer_sec / total_speech_sec if total_speech_sec > 0 else 0.0
-        throughput_rtf = total_infer_sec / total_audio_sec if total_audio_sec > 0 else 0.0
-        mem = get_memory_stats()
-        is_lossless = (overrun_count == 0) and (dropped_audio_chunks == 0) and (dropped_segments_count == 0)
+            logger.log_event("run_summary", {
+                "mode": "mic",
+                "total_audio_seconds": round(total_audio_sec, 3),
+                "total_speech_seconds": round(total_speech_sec, 3),
+                "total_inference_seconds": round(total_infer_sec, 3),
+                "speech_rtf": round(speech_rtf, 4),
+                "throughput_rtf": round(throughput_rtf, 4),
+                "is_lossless": is_lossless,
+                "overrun_count": overrun_count,
+                "dropped_chunks": dropped_audio_chunks,
+                "dropped_segments": dropped_segments_count,
+                "memory": mem
+            })
 
-        logger.log_event("run_summary", {
-            "mode": "mic",
-            "total_audio_seconds": round(total_audio_sec, 3),
-            "total_speech_seconds": round(total_speech_sec, 3),
-            "total_inference_seconds": round(total_infer_sec, 3),
-            "speech_rtf": round(speech_rtf, 4),
-            "throughput_rtf": round(throughput_rtf, 4),
-            "is_lossless": is_lossless,
-            "overrun_count": overrun_count,
-            "dropped_chunks": dropped_audio_chunks,
-            "dropped_segments": dropped_segments_count,
-            "memory": mem
-        })
-        logger.close()
+            return PipelineResult(
+                run_id=run_id,
+                mode="mic",
+                total_audio_seconds=total_audio_sec,
+                total_speech_seconds=total_speech_sec,
+                total_inference_seconds=total_infer_sec,
+                speech_rtf=speech_rtf,
+                throughput_rtf=throughput_rtf,
+                segment_count=len(segment_results),
+                is_lossless=is_lossless,
+                status="OK" if is_lossless else "DROPPED",
+                rtf_stats=calculate_percentiles(rtf_list),
+                estimated_delay_stats=calculate_percentiles(estimated_delay_list),
+                continuous_latency_stats=calculate_percentiles(continuous_latency_list),
+                queue_wait_stats=calculate_percentiles(queue_wait_list),
+                overrun_count=overrun_count,
+                dropped_audio_chunks=dropped_audio_chunks,
+                dropped_audio_seconds=dropped_audio_samples / 16000.0,
+                dropped_segments=dropped_segments_count,
+                dropped_items=[d.__dict__ for d in dropped_items],
+                current_rss_mb=mem["current_rss_mb"],
+                peak_rss_mb=mem["peak_rss_mb"],
+                segments=segment_results,
+                periodic_snapshots=periodic_snapshots
+            )
+        finally:
+            logger.close()
 
-        return PipelineResult(
-            run_id=run_id,
-            mode="mic",
-            total_audio_seconds=total_audio_sec,
-            total_speech_seconds=total_speech_sec,
-            total_inference_seconds=total_infer_sec,
-            speech_rtf=speech_rtf,
-            throughput_rtf=throughput_rtf,
-            segment_count=len(segment_results),
-            is_lossless=is_lossless,
-            status="OK" if is_lossless else "DROPPED",
-            rtf_stats=calculate_percentiles(rtf_list),
-            estimated_delay_stats=calculate_percentiles(estimated_delay_list),
-            continuous_latency_stats=calculate_percentiles(continuous_latency_list),
-            queue_wait_stats=calculate_percentiles(queue_wait_list),
-            overrun_count=overrun_count,
-            dropped_audio_chunks=dropped_audio_chunks,
-            dropped_audio_seconds=dropped_audio_samples / 16000.0,
-            dropped_segments=dropped_segments_count,
-            dropped_items=[d.__dict__ for d in dropped_items],
-            current_rss_mb=mem["current_rss_mb"],
-            peak_rss_mb=mem["peak_rss_mb"],
-            segments=segment_results,
-            periodic_snapshots=periodic_snapshots
-        )
+

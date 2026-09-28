@@ -21,13 +21,13 @@ from typing import Dict, Any
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from src.config import PipelineConfig, VadConfig, SttConfig, AudioConfig, QueueConfig
-from src.pipeline import SpeechPipeline
+from src.pipeline import SpeechPipeline, get_git_revision
 
-OUTPUT_JSON = "logs/task_01_mic_10min_revised_result.json"
+OUTPUT_JSON = "logs/task_01_mic_10min_rev2_result.json"
 
 def run_mic_benchmark(duration_seconds: float = 600.0) -> Dict[str, Any]:
     print("=================================================================")
-    print(f" Starting Scenario 5 (Revision 01): Unified SpeechPipeline Mic ({duration_seconds}s)")
+    print(f" Starting Scenario 5 (Revision 02): Unified SpeechPipeline Mic ({duration_seconds}s)")
     print("=================================================================")
 
     config = PipelineConfig(
@@ -44,7 +44,7 @@ def run_mic_benchmark(duration_seconds: float = 600.0) -> Dict[str, Any]:
     pipeline = SpeechPipeline(config)
     pipeline.stt.warm_up(0.5)
 
-    run_id = f"mic10m_rev1_{int(time.time())}"
+    run_id = f"mic10m_rev2_{int(time.time())}"
 
     # Run the unified pipeline
     res = pipeline.run_mic(
@@ -53,26 +53,40 @@ def run_mic_benchmark(duration_seconds: float = 600.0) -> Dict[str, Any]:
         snapshot_interval_sec=60.0
     )
 
-    # Strict multi-factor PASS evaluation
-    passed = (
-        res.is_lossless and
-        res.overrun_count == 0 and
-        res.dropped_audio_chunks == 0 and
-        res.dropped_segments == 0 and
-        res.status == "OK" and
-        (res.rtf_stats["p95"] <= 0.5 if res.segment_count > 0 else True) and
-        (res.estimated_delay_stats["p95"] <= 1500.0 if res.segment_count > 0 else True)
-    )
+    # Revision 02 Evaluation:
+    # If 0 speech segments are detected during test, latency drift cannot be validated,
+    # so speech performance judgment MUST be NOT_RUN (as required by PM review).
+    if res.segment_count == 0:
+        judgment = "NOT_RUN (No real speech utterances detected; latency drift & speech RTF cannot be validated on silence alone)"
+        passed = False
+    else:
+        # Check queue wait trend across segments
+        queue_waits = [s.get("queue_wait_ms", 0.0) for s in res.segments]
+        trend_drift = (queue_waits[-1] - queue_waits[0]) if len(queue_waits) >= 2 else 0.0
+        passed = (
+            res.is_lossless and
+            res.overrun_count == 0 and
+            res.dropped_audio_chunks == 0 and
+            res.dropped_segments == 0 and
+            res.status == "OK" and
+            res.rtf_stats["p95"] <= 0.5 and
+            res.estimated_delay_stats["p95"] <= 1500.0 and
+            trend_drift < 200.0
+        )
+        judgment = "PASS" if passed else "FAIL"
 
     summary = {
         "scenario": 5,
-        "revision": "01",
+        "revision": "02",
+        "git_revision": get_git_revision(),
         "name": "10-minute Live Microphone Stability Test (Unified Pipeline)",
+        "judgment": judgment,
         "passed": passed,
         "run_id": res.run_id,
         "target_duration_seconds": duration_seconds,
         "total_audio_captured_seconds": round(res.total_audio_seconds, 2),
         "total_speech_seconds": round(res.total_speech_seconds, 2),
+
         "total_inference_seconds": round(res.total_inference_seconds, 2),
         "speech_rtf": round(res.speech_rtf, 4),
         "throughput_rtf": round(res.throughput_rtf, 4),

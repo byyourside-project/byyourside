@@ -1,10 +1,21 @@
 # Task 01 Revision 01 — 측정·종료·손실 처리 보완 및 재측정 보고서
 
+> [!NOTE]
+> **Revision 02 업데이트 알림 (2026-09-28)**:
+> 본 보고서(Revision 01)의 지적 사항(A–D)에 대한 수정 및 재측정 결과는 [Task 01 Revision 02 보고서](file:///Users/jwlee/study1/byyourside/docs/reports/task_01_revision_02_report.md)에 기록되었습니다.
+> - **A (하드 컷 샘플 폐기)**: 282ms(4,512 샘플) 누락을 100% 샘플 보존(이월 분할)으로 해결.
+> - **B (오류 종료 hang)**: `abort_event` 및 timeout 기반 비동기 취소/정리 체계 구축.
+> - **C (drop 후 시간축 압축)**: `stream_sample_idx_start` 기반 gap 감지 및 시계 연속성 보장.
+> - **D (지연 지표 구분)**: VAD 추정치와 기준 어노테이션 분리, 마이크 콜백 resampling 분리.
+
 - 작성일: 2026-09-28
 - 작업 ID: Task 01 Revision 01 (측정·종료·손실 처리 보완)
 - 담당: Gemini 개발자 / 검수: 사용자와 PM
 - 관련 문서: [docs/reports/task_01_pm_review.md](file:///Users/jwlee/study1/byyourside/docs/reports/task_01_pm_review.md), [docs/pm/task_01_revision_01.md](file:///Users/jwlee/study1/byyourside/docs/pm/task_01_revision_01.md)
+- 재검수 문서: [docs/reports/task_01_revision_01_pm_review.md](file:///Users/jwlee/study1/byyourside/docs/reports/task_01_revision_01_pm_review.md)
+- 후속 보고서: [docs/reports/task_01_revision_02_report.md](file:///Users/jwlee/study1/byyourside/docs/reports/task_01_revision_02_report.md)
 - 기존 초안 보고서: [docs/reports/task_01_environment_and_stt_poc_report.md](file:///Users/jwlee/study1/byyourside/docs/reports/task_01_environment_and_stt_poc_report.md)
+
 
 ---
 
