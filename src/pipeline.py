@@ -104,14 +104,23 @@ class SpeechPipeline:
         if hasattr(self.stt, "close"):
             self.stt.close()
 
-    def run_wav_direct_stt(self, wav_path: str, run_id: Optional[str] = None) -> PipelineResult:
+    def run_wav_direct_stt(self, wav_path: str, run_id: Optional[str] = None, request_timeout: Optional[float] = None) -> PipelineResult:
         """
         Pure STT mode (bypasses VAD entirely).
         Feeds the entire audio file directly into SenseVoice for pure acoustic accuracy/RTF baseline.
+        Enforces a finite deadline budget based on audio duration to prevent infinite hangs.
         """
         run_id = run_id or f"wav_direct_{uuid.uuid4().hex[:8]}"
         samples, sr = load_and_normalize_audio(wav_path, target_sr=16000)
         total_audio_dur = len(samples) / float(sr)
+
+        if request_timeout is not None:
+            effective_timeout = request_timeout
+        else:
+            effective_timeout = max(
+                self.config.stt.request_timeout_sec,
+                self.config.stt.batch_timeout_base_sec + total_audio_dur * self.config.stt.batch_timeout_per_second
+            )
 
         logger = StructuredLogger(run_id=run_id, log_dir=self.config.log_dir)
         logger.log_event("run_start", {
@@ -120,16 +129,30 @@ class SpeechPipeline:
             "sample_rate": sr,
             "total_audio_seconds": round(total_audio_dur, 3),
             "bypasses_vad": True,
-            "stt_threads": self.config.stt.num_threads
+            "stt_threads": self.config.stt.num_threads,
+            "request_timeout_sec": effective_timeout
         })
 
         t_start = time.perf_counter()
-        text, infer_ms = self.stt.transcribe(samples, sr)
+        try:
+            text, infer_ms = self.stt.transcribe(samples, sr, timeout=effective_timeout)
+        except Exception as e:
+            logger.log_event("error", {
+                "mode": "wav_direct_stt",
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "timeout_sec": effective_timeout
+            })
+            logger.close()
+            if hasattr(self.stt, "terminate"):
+                self.stt.terminate()
+            raise
         t_end = time.perf_counter()
 
         infer_sec = infer_ms / 1000.0
         rtf = infer_sec / total_audio_dur if total_audio_dur > 0 else 0.0
-        mem = get_memory_stats()
+        child_pid = getattr(self.stt, "child_pid", None)
+        mem = get_memory_stats(child_pid)
 
         logger.log_segment_result(
             segment_id=1,
@@ -155,7 +178,8 @@ class SpeechPipeline:
             "total_audio_seconds": round(total_audio_dur, 3),
             "total_inference_seconds": round(infer_sec, 3),
             "rtf": round(rtf, 4),
-            "memory": mem
+            "memory": mem,
+            "child_pid": child_pid
         })
         logger.close()
 
@@ -193,11 +217,12 @@ class SpeechPipeline:
             }]
         )
 
-    def run_wav_vad(self, wav_path: str, run_id: Optional[str] = None) -> PipelineResult:
+    def run_wav_vad(self, wav_path: str, run_id: Optional[str] = None, request_timeout: Optional[float] = None) -> PipelineResult:
         """
         Batch VAD + STT mode on WAV file.
         Passes audio through VAD chunks and transcribes detected segments.
         Does not claim real-time streaming delay.
+        Enforces per-segment finite deadline to prevent infinite hangs.
         """
         run_id = run_id or f"wav_vad_{uuid.uuid4().hex[:8]}"
         samples, sr = load_and_normalize_audio(wav_path, target_sr=16000)
@@ -228,11 +253,32 @@ class SpeechPipeline:
         speech_dur_total = 0.0
 
         for seg in segments:
+            seg_dur_sec = seg.duration_ms / 1000.0
+            if request_timeout is not None:
+                effective_timeout = request_timeout
+            else:
+                effective_timeout = max(
+                    self.config.stt.request_timeout_sec,
+                    self.config.stt.batch_timeout_base_sec + seg_dur_sec * self.config.stt.batch_timeout_per_second
+                )
+
             t0 = time.perf_counter()
-            text, infer_ms = self.stt.transcribe(seg.samples, 16000)
+            try:
+                text, infer_ms = self.stt.transcribe(seg.samples, 16000, timeout=effective_timeout)
+            except Exception as e:
+                logger.log_event("error", {
+                    "mode": "wav_vad",
+                    "segment_id": seg.segment_id,
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "timeout_sec": effective_timeout
+                })
+                logger.close()
+                if hasattr(self.stt, "terminate"):
+                    self.stt.terminate()
+                raise
             t1 = time.perf_counter()
 
-            seg_dur_sec = seg.duration_ms / 1000.0
             speech_dur_total += seg_dur_sec
             infer_sec = infer_ms / 1000.0
             infer_time_total += infer_sec
@@ -270,7 +316,8 @@ class SpeechPipeline:
                 "endpoint_reason": seg.endpoint_reason
             })
 
-        mem = get_memory_stats()
+        child_pid = getattr(self.stt, "child_pid", None)
+        mem = get_memory_stats(child_pid)
         speech_rtf = infer_time_total / speech_dur_total if speech_dur_total > 0 else 0.0
         throughput_rtf = infer_time_total / total_audio_dur if total_audio_dur > 0 else 0.0
 
@@ -281,7 +328,8 @@ class SpeechPipeline:
             "total_inference_seconds": round(infer_time_total, 3),
             "speech_rtf": round(speech_rtf, 4),
             "throughput_rtf": round(throughput_rtf, 4),
-            "memory": mem
+            "memory": mem,
+            "child_pid": child_pid
         })
         logger.close()
 
@@ -319,11 +367,14 @@ class SpeechPipeline:
         wav_path: str,
         speed: float = 1.0,
         run_id: Optional[str] = None,
-        artificial_stt_delay_sec: float = 0.0
+        artificial_stt_delay_sec: float = 0.0,
+        request_timeout: Optional[float] = None
     ) -> PipelineResult:
         """
-        Simulated streaming replay mode (Revision 02).
+        Simulated streaming replay mode.
         Feeds audio chunks at exact real-time speed (1.0x) to evaluate queue dynamics and post-speech latency.
+        Enforces per-request STT deadline so uncooperative inference is reaped immediately
+        even while input feeding is still active.
         Strict sentinel-based termination with abort_event guarantees zero race conditions or hangs.
         """
         if self.has_running_workers():
@@ -336,6 +387,8 @@ class SpeechPipeline:
         stream_start_wall_ts = time.perf_counter()
         clock_origin_time = time.time()
 
+        effective_req_timeout = request_timeout if request_timeout is not None else self.config.stt.request_timeout_sec
+
         logger = StructuredLogger(run_id=run_id, log_dir=self.config.log_dir)
         logger.log_event("run_start", {
             "mode": "replay",
@@ -344,6 +397,7 @@ class SpeechPipeline:
             "speed": speed,
             "total_audio_seconds": round(total_audio_dur, 3),
             "artificial_delay_sec": artificial_stt_delay_sec,
+            "request_timeout_sec": effective_req_timeout,
             "git_revision": get_git_revision(),
             "clock_origin_perf_counter": stream_start_wall_ts,
             "clock_origin_time": clock_origin_time,
@@ -481,7 +535,19 @@ class SpeechPipeline:
                         segment_queue.task_done()
                         break
 
-                    text, infer_ms = self.stt.transcribe(seg.samples, 16000, abort_event=abort_event)
+                    try:
+                        text, infer_ms = self.stt.transcribe(
+                            seg.samples,
+                            16000,
+                            abort_event=abort_event,
+                            timeout=effective_req_timeout
+                        )
+                    except TypeError:
+                        text, infer_ms = self.stt.transcribe(
+                            seg.samples,
+                            16000,
+                            abort_event=abort_event
+                        )
 
                     if abort_event.is_set():
                         segment_queue.task_done()
@@ -632,8 +698,9 @@ class SpeechPipeline:
                         except Exception:
                             break
 
-                t_vad.join(timeout=2.0)
-                t_stt.join(timeout=2.0)
+                join_timeout = getattr(self.config, "worker_join_timeout_sec", 2.0)
+                t_vad.join(timeout=join_timeout)
+                t_stt.join(timeout=join_timeout)
 
                 vad_timed_out = t_vad.is_alive()
                 stt_timed_out = t_stt.is_alive()
@@ -662,16 +729,19 @@ class SpeechPipeline:
                     self._active_workers = [t for t in self._active_workers if t.is_alive()]
 
             if vad_timed_out:
-                raise TimeoutError("VAD worker failed to terminate within 2.0s")
+                raise TimeoutError(f"VAD worker failed to terminate within {join_timeout}s join deadline")
             if stt_timed_out:
-                raise TimeoutError("STT worker failed to terminate within 2.0s")
+                raise TimeoutError(f"STT worker failed to terminate within {join_timeout}s join deadline")
 
             if vad_exception:
                 raise RuntimeError(f"VAD worker failed with exception: {vad_exception}") from vad_exception
             if stt_exception:
+                if isinstance(stt_exception, TimeoutError):
+                    raise stt_exception
                 raise RuntimeError(f"STT worker failed with exception: {stt_exception}") from stt_exception
 
-            mem = get_memory_stats()
+            child_pid = getattr(self.stt, "child_pid", None)
+            mem = get_memory_stats(child_pid)
             speech_rtf = total_infer_sec / total_speech_sec if total_speech_sec > 0 else 0.0
             throughput_rtf = total_infer_sec / total_audio_dur if total_audio_dur > 0 else 0.0
             is_lossless = (dropped_audio_chunks == 0) and (dropped_segments_count == 0)
@@ -686,7 +756,8 @@ class SpeechPipeline:
                 "is_lossless": is_lossless,
                 "dropped_audio_chunks": dropped_audio_chunks,
                 "dropped_segments": dropped_segments_count,
-                "memory": mem
+                "memory": mem,
+                "child_pid": child_pid
             })
 
             return PipelineResult(
@@ -723,13 +794,16 @@ class SpeechPipeline:
         self,
         duration_seconds: float = 10.0,
         run_id: Optional[str] = None,
-        snapshot_interval_sec: float = 60.0
+        snapshot_interval_sec: float = 60.0,
+        request_timeout: Optional[float] = None,
+        stream_factory: Optional[Any] = None
     ) -> PipelineResult:
         """
-        Live microphone recording and real-time STT pipeline (Revision 02).
+        Live microphone recording and real-time STT pipeline.
         Captures audio at hardware rate (e.g. 48kHz) strictly in callback,
         downsamples via resample_poly in VAD worker thread,
-        and uses abort_event and timeouts for guaranteed clean shutdown under errors.
+        and uses abort_event and request deadlines for guaranteed clean shutdown under errors.
+        Supports mock stream_factory for deterministic non-physical mic validation.
         """
         if self.has_running_workers():
             raise RuntimeError("Cannot start pipeline run while previous workers are still active")
@@ -744,6 +818,8 @@ class SpeechPipeline:
         stream_start_wall_ts = time.perf_counter()
         clock_origin_time = time.time()
 
+        effective_req_timeout = request_timeout if request_timeout is not None else self.config.stt.request_timeout_sec
+
         logger = StructuredLogger(run_id=run_id, log_dir=self.config.log_dir)
         logger.log_event("run_start", {
             "mode": "mic",
@@ -751,6 +827,7 @@ class SpeechPipeline:
             "device_sample_rate": in_rate,
             "target_sample_rate": out_rate,
             "resample_ratio": f"{up}/{down}",
+            "request_timeout_sec": effective_req_timeout,
             "git_revision": get_git_revision(),
             "clock_origin_perf_counter": stream_start_wall_ts,
             "clock_origin_time": clock_origin_time,
@@ -927,7 +1004,19 @@ class SpeechPipeline:
                         segment_queue.task_done()
                         break
 
-                    text, infer_ms = self.stt.transcribe(seg.samples, 16000, abort_event=abort_event)
+                    try:
+                        text, infer_ms = self.stt.transcribe(
+                            seg.samples,
+                            16000,
+                            abort_event=abort_event,
+                            timeout=effective_req_timeout
+                        )
+                    except TypeError:
+                        text, infer_ms = self.stt.transcribe(
+                            seg.samples,
+                            16000,
+                            abort_event=abort_event
+                        )
 
                     if abort_event.is_set():
                         segment_queue.task_done()
@@ -1003,7 +1092,8 @@ class SpeechPipeline:
 
         try:
             try:
-                with sd.InputStream(
+                stream_cls = stream_factory or sd.InputStream
+                with stream_cls(
                     samplerate=in_rate,
                     channels=1,
                     dtype="float32",
@@ -1013,15 +1103,19 @@ class SpeechPipeline:
                     while time.time() - start_wall_time < duration_seconds:
                         if abort_event.is_set():
                             break
-                        time.sleep(0.2)
+                        time.sleep(0.05)
                         now = time.time()
                         if now - last_snapshot_time >= snapshot_interval_sec:
                             elapsed = now - start_wall_time
-                            mem = get_memory_stats()
+                            child_pid = getattr(self.stt, "child_pid", None)
+                            mem = get_memory_stats(child_pid)
                             snapshot = {
                                 "elapsed_seconds": round(elapsed, 1),
                                 "current_rss_mb": mem["current_rss_mb"],
                                 "peak_rss_mb": mem["peak_rss_mb"],
+                                "parent_rss_mb": mem.get("parent_rss_mb", mem["current_rss_mb"]),
+                                "child_rss_mb": mem.get("child_rss_mb", 0.0),
+                                "combined_rss_mb": mem.get("combined_rss_mb", mem["current_rss_mb"]),
                                 "audio_queue_size": audio_queue.qsize(),
                                 "segment_queue_size": segment_queue.qsize(),
                                 "overrun_count": overrun_count,
@@ -1031,7 +1125,8 @@ class SpeechPipeline:
                             }
                             periodic_snapshots.append(snapshot)
                             print(f"[MIC Monitor] {elapsed:5.1f}s / {duration_seconds}s | "
-                                  f"CurRSS: {mem['current_rss_mb']:5.1f}MB | PeakRSS: {mem['peak_rss_mb']:5.1f}MB | "
+                                  f"ParentRSS: {mem.get('parent_rss_mb', mem['current_rss_mb']):5.1f}MB | "
+                                  f"ChildRSS: {mem.get('child_rss_mb', 0.0):5.1f}MB | "
                                   f"Overruns: {overrun_count} | Drops: {dropped_audio_chunks} | Segments: {len(segment_results)}")
                             last_snapshot_time = now
 
@@ -1062,8 +1157,9 @@ class SpeechPipeline:
                         except Exception:
                             break
 
-                t_vad.join(timeout=2.0)
-                t_stt.join(timeout=2.0)
+                join_timeout = getattr(self.config, "worker_join_timeout_sec", 2.0)
+                t_vad.join(timeout=join_timeout)
+                t_stt.join(timeout=join_timeout)
 
                 vad_timed_out = t_vad.is_alive()
                 stt_timed_out = t_stt.is_alive()
@@ -1092,19 +1188,22 @@ class SpeechPipeline:
                     self._active_workers = [t for t in self._active_workers if t.is_alive()]
 
             if vad_timed_out:
-                raise TimeoutError("VAD worker failed to terminate within 2.0s")
+                raise TimeoutError(f"VAD worker failed to terminate within {join_timeout}s join deadline")
             if stt_timed_out:
-                raise TimeoutError("STT worker failed to terminate within 2.0s")
+                raise TimeoutError(f"STT worker failed to terminate within {join_timeout}s join deadline")
 
             if vad_exception:
                 raise RuntimeError(f"VAD worker failed with exception: {vad_exception}") from vad_exception
             if stt_exception:
+                if isinstance(stt_exception, TimeoutError):
+                    raise stt_exception
                 raise RuntimeError(f"STT worker failed with exception: {stt_exception}") from stt_exception
 
             total_audio_sec = total_captured_frames / float(in_rate)
             speech_rtf = total_infer_sec / total_speech_sec if total_speech_sec > 0 else 0.0
             throughput_rtf = total_infer_sec / total_audio_sec if total_audio_sec > 0 else 0.0
-            mem = get_memory_stats()
+            child_pid = getattr(self.stt, "child_pid", None)
+            mem = get_memory_stats(child_pid)
             is_lossless = (overrun_count == 0) and (dropped_audio_chunks == 0) and (dropped_segments_count == 0)
 
             logger.log_event("run_summary", {
@@ -1118,7 +1217,8 @@ class SpeechPipeline:
                 "overrun_count": overrun_count,
                 "dropped_chunks": dropped_audio_chunks,
                 "dropped_segments": dropped_segments_count,
-                "memory": mem
+                "memory": mem,
+                "child_pid": child_pid
             })
 
             return PipelineResult(

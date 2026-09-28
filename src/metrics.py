@@ -162,13 +162,31 @@ def get_peak_rss_mb() -> float:
     else:
         return usage.ru_maxrss / 1024.0
 
-def get_memory_stats() -> Dict[str, float]:
-    """Return both current RSS and peak RSS in MB."""
-    return {
-        "current_rss_mb": round(get_current_rss_mb(), 2),
-        "peak_rss_mb": round(get_peak_rss_mb(), 2)
+def get_memory_stats(child_pid: Optional[int] = None) -> Dict[str, float]:
+    """
+    Return current and peak RSS in MB.
+    If child_pid is supplied, explicitly separates parent and child RSS,
+    and provides combined RSS (with note that combined may overlap shared COW pages).
+    """
+    parent_rss = get_current_rss_mb()
+    stats = {
+        "current_rss_mb": round(parent_rss, 2),
+        "peak_rss_mb": round(get_peak_rss_mb(), 2),
+        "parent_rss_mb": round(parent_rss, 2),
+        "child_rss_mb": 0.0,
+        "combined_rss_mb": round(parent_rss, 2)
     }
+    if child_pid is not None:
+        try:
+            child_proc = psutil.Process(child_pid)
+            child_rss = child_proc.memory_info().rss / (1024.0 * 1024.0)
+            stats["child_rss_mb"] = round(child_rss, 2)
+            stats["combined_rss_mb"] = round(parent_rss + child_rss, 2)
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+    return stats
 
 def get_process_memory_mb() -> float:
     """Backward compatibility alias for peak RSS memory in MB."""
     return get_peak_rss_mb()
+

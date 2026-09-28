@@ -15,6 +15,12 @@
 
 ---
 
+> [!NOTE]
+> **Revision 05 갱신 안내**:
+> 본 보고서(Revision 04)의 P1 잔여 지적 사항(추론 요청 deadline의 실제 호출부 연결, 스트리밍 입력 진행 중 EOF 전 즉시 회수, 정밀 타이밍/IPC/메모리 분리 계측)이 **[docs/reports/task_01_revision_05_report.md](file:///Users/jwlee/study1/byyourside/docs/reports/task_01_revision_05_report.md)**에서 수정 및 보완되었습니다. 최신 현황은 해당 보고서를 참조하십시오.
+
+---
+
 ## 1. 종합 결과 및 판정
 
 - **판정**: **PARTIAL (Task 02 진입 보류 및 PM 검수 대기)**

@@ -25,10 +25,11 @@ class SttEngine:
         self.total_audio_seconds = 0.0
         self.total_inference_time_seconds = 0.0
 
-    def warm_up(self, duration_seconds: float = 1.0) -> float:
+    def warm_up(self, duration_seconds: float = 1.0, timeout: Optional[float] = None) -> float:
         """Run a warm-up inference with dummy audio. Returns inference time in ms."""
         dummy_audio = np.zeros(int(16000 * duration_seconds), dtype=np.float32)
-        _, infer_ms = self.transcribe(dummy_audio, 16000, is_warmup=True)
+        effective_timeout = timeout if timeout is not None else self.config.warm_up_timeout_sec
+        _, infer_ms = self.transcribe(dummy_audio, 16000, is_warmup=True, timeout=effective_timeout)
         return infer_ms
 
     def transcribe(
@@ -36,7 +37,8 @@ class SttEngine:
         samples: np.ndarray,
         sample_rate: int = 16000,
         is_warmup: bool = False,
-        abort_event: Optional[Any] = None
+        abort_event: Optional[Any] = None,
+        timeout: Optional[float] = None
     ) -> Tuple[str, float]:
         """
         Transcribe audio samples (1D float32 array in [-1.0, 1.0]).
@@ -49,6 +51,7 @@ class SttEngine:
         if samples.dtype != np.float32:
             samples = samples.astype(np.float32)
 
+        effective_timeout = timeout if timeout is not None else self.config.request_timeout_sec
         t_start = time.perf_counter()
         stream = self.recognizer.create_stream()
         stream.accept_waveform(sample_rate, samples)
@@ -56,7 +59,10 @@ class SttEngine:
         t_end = time.perf_counter()
 
         infer_ms = (t_end - t_start) * 1000.0
+        if effective_timeout and (infer_ms / 1000.0) > effective_timeout:
+            raise TimeoutError(f"SttEngine inference timed out after {effective_timeout:.2f}s")
         text = stream.result.text.strip()
+
 
         if not is_warmup:
             self.inference_count += 1
@@ -128,6 +134,8 @@ def _stt_process_worker_loop(
 
         elif cmd == "warm_up":
             duration_sec = msg[1]
+            if uncooperative_delay > 0:
+                time.sleep(uncooperative_delay)
             infer_ms = engine.warm_up(duration_sec)
             conn.send(("warm_up_result", infer_ms))
 
@@ -168,6 +176,8 @@ class IsolatedSttEngine:
         self.inference_count = 0
         self.total_audio_seconds = 0.0
         self.total_inference_time_seconds = 0.0
+        self.last_roundtrip_ms = 0.0
+        self.last_ipc_overhead_ms = 0.0
         self._req_counter = 0
 
         self.ensure_started()
@@ -238,12 +248,16 @@ class IsolatedSttEngine:
 
         self.ensure_started()
 
+        effective_timeout = timeout if timeout is not None else self.config.request_timeout_sec
+        audio_dur = len(samples) / float(sample_rate)
+
         with self._lock:
             self._req_counter += 1
             req_id = self._req_counter
             if samples.dtype != np.float32:
                 samples = samples.astype(np.float32)
 
+            t_req_start = time.perf_counter()
             try:
                 self._conn.send(("transcribe", req_id, samples, sample_rate, is_warmup))
             except (BrokenPipeError, EOFError, OSError) as e:
@@ -251,7 +265,7 @@ class IsolatedSttEngine:
                 raise RuntimeError("STT worker process connection failed") from e
 
             poll_interval = 0.02
-            deadline = (time.perf_counter() + timeout) if timeout else None
+            deadline = (t_req_start + effective_timeout) if effective_timeout else None
 
             while True:
                 if abort_event is not None and abort_event.is_set():
@@ -260,7 +274,10 @@ class IsolatedSttEngine:
 
                 if deadline and time.perf_counter() > deadline:
                     self._terminate_locked()
-                    raise TimeoutError(f"STT inference timed out after {timeout}s")
+                    raise TimeoutError(
+                        f"STT inference request #{req_id} timed out after {effective_timeout:.2f}s deadline "
+                        f"(audio duration: {audio_dur:.2f}s)"
+                    )
 
                 if self._proc is None or not self._proc.is_alive():
                     self._terminate_locked()
@@ -276,24 +293,45 @@ class IsolatedSttEngine:
                     if msg[0] == "result":
                         _, res_req_id, text, infer_ms = msg
                         if res_req_id == req_id:
+                            t_req_end = time.perf_counter()
+                            parent_roundtrip_ms = (t_req_end - t_req_start) * 1000.0
+                            ipc_overhead_ms = max(0.0, parent_roundtrip_ms - infer_ms)
+                            self.last_roundtrip_ms = parent_roundtrip_ms
+                            self.last_ipc_overhead_ms = ipc_overhead_ms
                             if not is_warmup:
                                 self.inference_count += 1
-                                audio_dur = len(samples) / float(sample_rate)
                                 self.total_audio_seconds += audio_dur
                                 self.total_inference_time_seconds += (infer_ms / 1000.0)
                             return text, infer_ms
                     elif msg[0] == "result_error":
                         raise RuntimeError(f"STT inference error: {msg[2]}")
 
-    def warm_up(self, duration_seconds: float = 1.0) -> float:
+    def warm_up(self, duration_seconds: float = 1.0, timeout: Optional[float] = None) -> float:
         self.ensure_started()
+        effective_timeout = timeout if timeout is not None else self.config.warm_up_timeout_sec
         with self._lock:
-            self._conn.send(("warm_up", duration_seconds))
-            if self._conn.poll(timeout=10.0):
-                msg = self._conn.recv()
+            try:
+                self._conn.send(("warm_up", duration_seconds))
+            except (BrokenPipeError, EOFError, OSError) as e:
+                self._terminate_locked()
+                raise RuntimeError("STT worker process connection failed during warm_up") from e
+
+            if self._conn.poll(timeout=effective_timeout):
+                try:
+                    msg = self._conn.recv()
+                except (EOFError, BrokenPipeError) as e:
+                    self._terminate_locked()
+                    raise RuntimeError("STT worker process terminated during warm_up") from e
                 if msg[0] == "warm_up_result":
                     return msg[1]
-            return 0.0
+                elif msg[0] == "result_error":
+                    self._terminate_locked()
+                    raise RuntimeError(f"STT warm_up error: {msg[1]}")
+
+            # Explicit timeout failure: terminate child process and raise TimeoutError
+            self._terminate_locked()
+            raise TimeoutError(f"STT warm_up timed out after {effective_timeout:.2f}s deadline")
+
 
     @property
     def cumulative_rtf(self) -> float:

@@ -295,9 +295,9 @@ def run_scenario_6() -> Dict[str, Any]:
     return res_data
 
 def main():
-    print("=================================================================")
-    print(" Running Task 01 Required Scenarios (Revision 03)")
-    revision = "04" if "--rev4" in sys.argv else "03"
+    revision = "05" if "--rev5" in sys.argv else ("04" if "--rev4" in sys.argv else "03")
+    print(f"=================================================================")
+    print(f" Running Task 01 Required Scenarios (Revision {revision})")
     results_file = f"logs/task_01_scenario_rev{revision}_results.json"
 
     results = {

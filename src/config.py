@@ -35,12 +35,20 @@ class SttConfig:
     use_itn: bool = True
     num_threads: int = 4
     provider: str = "cpu"
+    request_timeout_sec: float = 2.0         # Streaming inference deadline per segment request (default 2.0s)
+    warm_up_timeout_sec: float = 10.0        # Warm-up inference deadline (default 10.0s)
+    batch_timeout_base_sec: float = 5.0      # Base timeout for direct/batch WAV inference
+    batch_timeout_per_second: float = 1.0    # Additional timeout per second of audio in batch mode
 
     def validate(self) -> None:
         if not os.path.exists(self.model_path):
             raise FileNotFoundError(f"STT model not found: {self.model_path}")
         if not os.path.exists(self.tokens_path):
             raise FileNotFoundError(f"STT tokens not found: {self.tokens_path}")
+        if self.request_timeout_sec <= 0:
+            raise ValueError("request_timeout_sec must be positive")
+        if self.warm_up_timeout_sec <= 0:
+            raise ValueError("warm_up_timeout_sec must be positive")
 
 @dataclass
 class AudioConfig:
@@ -66,7 +74,9 @@ class PipelineConfig:
     audio: AudioConfig = field(default_factory=AudioConfig)
     queue: QueueConfig = field(default_factory=QueueConfig)
     log_dir: str = "logs"
+    worker_join_timeout_sec: float = 2.0     # Final worker thread join deadline after feeder finishes
 
     def validate(self) -> None:
         self.vad.validate()
         self.stt.validate()
+
