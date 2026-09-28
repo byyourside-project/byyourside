@@ -5,20 +5,24 @@ Uses the unified SpeechPipeline.run_mic() path.
 
 Evaluates against PM requirements:
   1. Actual captured audio duration (not merely the target setting duration).
-  2. Per-minute speech distribution (ensures real continuous presentation, detects silence cheating).
+  2. Per-minute speech distribution & queue wait metrics (detects silence cheating and runaway queue).
   3. Lossless streaming: 0 capture overruns, 0 dropped audio chunks, 0 dropped speech segments.
   4. Memory stability: Separate Parent Process RSS vs Child Process RSS tracking across 10 minutes.
-  5. Queue latency stability: Measures trend drift and per-minute queue wait distributions.
-  6. Isolated execution run_id and timestamped output files to prevent log pollution.
+  5. Queue latency stability: Measures trend drift, intermediate surges, and per-minute queue wait stats.
+  6. Failure evidence preservation: Emits JSON report with run_id, phase, and exception even on timeout/crash.
+  7. Clear gate status separation: System/Resource Stability vs Presentation Speech Coverage vs Human Latency.
 """
 
 import argparse
 import json
+import math
 import os
+import subprocess
 import sys
 import time
 import uuid
 from typing import Dict, Any, List, Optional
+import numpy as np
 
 # Add project root to sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -30,15 +34,40 @@ from src.metrics import get_memory_stats
 REQUIRED_STABILITY_SECONDS = 600.0
 
 
+def get_git_info() -> Dict[str, Any]:
+    """Retrieve git revision and dirty status for provenance tracking."""
+    try:
+        rev = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            stderr=subprocess.DEVNULL
+        ).decode().strip()
+        status_out = subprocess.check_output(
+            ["git", "status", "--porcelain"],
+            stderr=subprocess.DEVNULL
+        ).decode().strip()
+        return {"revision": rev, "is_dirty": len(status_out) > 0}
+    except Exception:
+        return {"revision": "unknown", "is_dirty": False}
+
+
+def atomic_write_json(filepath: str, data: Dict[str, Any]) -> None:
+    """Safely write JSON to disk using atomic rename."""
+    os.makedirs(os.path.dirname(os.path.abspath(filepath)) or ".", exist_ok=True)
+    tmp_path = f"{filepath}.tmp_{uuid.uuid4().hex[:8]}"
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp_path, filepath)
+
+
 def analyze_per_minute_speech(
     segments: List[Dict[str, Any]],
-    total_captured_sec: float,
-    minute_count: int
+    total_captured_sec: float
 ) -> List[Dict[str, Any]]:
     """
-    Analyzes detected speech segments into 1-minute bins (0~60s, 60~120s, etc.).
-    Returns per-minute speech statistics to ensure continuous presentation.
+    Analyzes detected speech segments and queue wait latency in 1-minute bins.
+    Includes the trailing partial minute if total_captured_sec is not an exact multiple of 60.
     """
+    minute_count = max(1, math.ceil(total_captured_sec / 60.0))
     bins = []
     for m in range(minute_count):
         m_start_sec = m * 60.0
@@ -47,26 +76,43 @@ def analyze_per_minute_speech(
 
         m_segments = []
         speech_sec_in_min = 0.0
+        m_queue_waits = []
 
         for seg in segments:
             seg_start_sec = seg.get("start_ms", 0.0) / 1000.0
             seg_end_sec = seg.get("end_ms", 0.0) / 1000.0
 
-            # Overlap with this minute
+            # Overlap with this minute window
             overlap_start = max(m_start_sec, seg_start_sec)
             overlap_end = min(m_end_sec, seg_end_sec)
             if overlap_end > overlap_start:
                 speech_sec_in_min += (overlap_end - overlap_start)
                 m_segments.append(seg)
+                if "queue_wait_ms" in seg and isinstance(seg["queue_wait_ms"], (int, float)):
+                    m_queue_waits.append(float(seg["queue_wait_ms"]))
 
         speech_ratio = (speech_sec_in_min / m_dur_sec) if m_dur_sec > 0 else 0.0
+        has_active = (speech_sec_in_min >= 3.0) or (m_dur_sec < 60.0 and speech_ratio >= 0.05 and speech_sec_in_min >= 0.5)
+
+        queue_stats: Optional[Dict[str, float]] = None
+        if m_queue_waits:
+            queue_stats = {
+                "count": len(m_queue_waits),
+                "min_ms": round(min(m_queue_waits), 1),
+                "avg_ms": round(sum(m_queue_waits) / len(m_queue_waits), 1),
+                "max_ms": round(max(m_queue_waits), 1),
+                "p95_ms": round(float(np.percentile(m_queue_waits, 95)), 1)
+            }
+
         bins.append({
             "minute_index": m + 1,
             "window_range_sec": f"{m_start_sec:.1f}s - {m_end_sec:.1f}s",
+            "duration_seconds": round(m_dur_sec, 2),
             "speech_seconds": round(speech_sec_in_min, 2),
             "speech_ratio": round(speech_ratio, 4),
             "segment_count": len(m_segments),
-            "has_active_speech": speech_sec_in_min >= 3.0
+            "has_active_speech": has_active,
+            "queue_wait_stats": queue_stats
         })
     return bins
 
@@ -85,11 +131,13 @@ def run_mic_benchmark(
         output_json = f"logs/{prefix}_{run_timestamp}_{run_uuid}.json"
 
     run_id = f"mic_{'10m' if is_full_10min_gate else 'smoke'}_{run_timestamp}_{run_uuid}"
+    git_info = get_git_info()
 
     print("=================================================================")
     print(f" Starting Scenario 5: Live Microphone Evaluation ({duration_seconds}s)")
     print(f" Test Type:       {test_type}")
     print(f" Execution ID:    {run_id}")
+    print(f" Git Revision:    {git_info['revision']} (dirty: {git_info['is_dirty']})")
     print(f" Output JSON:     {output_json}")
     print("=================================================================")
 
@@ -110,11 +158,16 @@ def run_mic_benchmark(
     )
 
     pipeline = None
+    failed_phase = "pipeline_init"
+    t_wall_start = time.perf_counter()
+
     try:
         pipeline = SpeechPipeline(config)
+
+        failed_phase = "warm_up"
         pipeline.stt.warm_up(0.5)
 
-        t_wall_start = time.perf_counter()
+        failed_phase = "run_mic"
         res = pipeline.run_mic(
             duration_seconds=duration_seconds,
             run_id=run_id,
@@ -122,76 +175,137 @@ def run_mic_benchmark(
         )
         t_wall_elapsed = time.perf_counter() - t_wall_start
 
-        # Audio capture duration verification
+        # 1. Audio capture duration verification
         captured_audio_sec = res.total_audio_seconds
         dur_tolerance = 2.0  # 2 seconds tolerance for audio ringbuffer startup/teardown
         duration_satisfied = (captured_audio_sec >= duration_seconds - dur_tolerance)
 
-        # Per-minute speech distribution analysis
-        minute_count = max(1, int(round(captured_audio_sec / 60.0)))
-        per_minute_stats = analyze_per_minute_speech(res.segments, captured_audio_sec, minute_count)
+        # 2. Per-minute speech distribution analysis (including trailing partial minute)
+        per_minute_stats = analyze_per_minute_speech(res.segments, captured_audio_sec)
+        minute_count = len(per_minute_stats)
         active_minutes = sum(1 for m in per_minute_stats if m["has_active_speech"])
 
-        # Check for silence cheating (e.g. speaking 1 sentence and staying silent for 9 minutes)
+        # Check for minimum speech presence (detection sanity check)
         if is_full_10min_gate:
-            continuous_speech_valid = (active_minutes >= 5) and (res.total_speech_seconds >= 60.0)
+            speech_presence_ok = (active_minutes >= 5) and (res.total_speech_seconds >= 60.0)
         else:
-            continuous_speech_valid = (res.segment_count > 0)
+            speech_presence_ok = (res.segment_count > 0)
 
-        # Memory separation
-        child_pid = getattr(pipeline.stt, "child_pid", None)
-        final_mem = get_memory_stats(child_pid)
+        # 3. Queue wait validation and drift calculation
+        queue_waits = []
+        queue_valid = True
+        queue_error_msg = None
+        for i, s in enumerate(res.segments):
+            if "queue_wait_ms" not in s:
+                queue_valid = False
+                queue_error_msg = f"Segment {i} missing 'queue_wait_ms'"
+                break
+            val = s["queue_wait_ms"]
+            if not isinstance(val, (int, float)) or math.isnan(val) or math.isinf(val):
+                queue_valid = False
+                queue_error_msg = f"Segment {i} has invalid queue_wait_ms: {val}"
+                break
+            queue_waits.append(float(val))
 
-        # Queue wait drift
-        queue_waits = [s["queue_wait_ms"] for s in res.segments if "queue_wait_ms" in s]
-        if len(queue_waits) >= 2:
+        if res.segment_count > 0 and not queue_valid:
+            queue_stability_ok = False
+            has_runaway_queue = True
+            trend_drift = None
+            queue_status = f"INVALID ({queue_error_msg})"
+        elif len(queue_waits) >= 2:
             trend_drift = queue_waits[-1] - queue_waits[0]
-            has_runaway_queue = (trend_drift > 200.0)
-        else:
+            max_q = max(queue_waits)
+            min_q = min(queue_waits)
+            # Detect runaway drift (>200ms) or major intermediate surge (>300ms spike)
+            intermediate_surge = ((max_q - min_q) > 300.0 and max_q > 300.0)
+            has_runaway_queue = (trend_drift > 200.0) or intermediate_surge
+            queue_stability_ok = not has_runaway_queue
+            queue_status = "RUNAWAY" if has_runaway_queue else "OK"
+        elif len(queue_waits) == 1:
             trend_drift = 0.0
+            has_runaway_queue = (queue_waits[0] > 500.0)
+            queue_stability_ok = not has_runaway_queue
+            queue_status = "SINGLE_SAMPLE"
+        else:  # 0 segments
+            trend_drift = None
             has_runaway_queue = False
+            queue_stability_ok = True
+            queue_status = "NO_DATA"
 
-        # Evaluation criteria
-        lossless_ok = res.is_lossless and (res.overrun_count == 0) and (res.dropped_audio_chunks == 0) and (res.dropped_segments == 0)
+        # 4. Technical Metric Evaluations
+        lossless_ok = (
+            res.is_lossless and
+            (res.overrun_count == 0) and
+            (res.dropped_audio_chunks == 0) and
+            (res.dropped_segments == 0)
+        )
         rtf_ok = (res.rtf_stats.get("p95", 1.0) <= 0.5)
         delay_ok = (res.estimated_delay_stats.get("p95", 9999.0) <= 1500.0)
         status_ok = (res.status == "OK")
+        resource_stability_ok = lossless_ok and status_ok and queue_stability_ok
 
+        child_pid = getattr(pipeline.stt, "child_pid", None)
+        final_mem = get_memory_stats(child_pid)
+
+        # 5. Clean separation of judgments
         if not duration_satisfied:
-            judgment = f"FAIL (Captured duration {captured_audio_sec:.1f}s was less than target {duration_seconds:.1f}s)"
+            structured_status = "FAIL"
+            overall_status = f"FAIL (Captured duration {captured_audio_sec:.1f}s was less than target {duration_seconds - dur_tolerance:.1f}s)"
+            judgment = overall_status
             passed = False
         elif res.segment_count == 0:
-            judgment = "NOT_RUN (No real speech detected; stability and RTF cannot be evaluated on silence alone)"
+            structured_status = "NOT_RUN"
+            overall_status = "NOT_RUN (No real speech detected; stability and RTF cannot be evaluated on silence alone)"
+            judgment = overall_status
             passed = False
-        elif is_full_10min_gate and not continuous_speech_valid:
-            judgment = (f"PARTIAL (Silence/cheating detected: only {active_minutes}/10 minutes had active speech, "
-                        f"total speech {res.total_speech_seconds:.1f}s < 60s target)")
+        elif not queue_valid:
+            structured_status = "FAIL"
+            overall_status = f"FAIL (Queue metrics invalid: {queue_error_msg})"
+            judgment = overall_status
             passed = False
-        elif lossless_ok and rtf_ok and delay_ok and status_ok and not has_runaway_queue:
-            if is_full_10min_gate:
-                judgment = "PASS (10-minute continuous presentation stability validated)"
-                passed = True
-            else:
-                judgment = "SMOKE_PASS (Smoke test passed; 600s continuous stability remains NOT_RUN/PARTIAL)"
-                passed = True
-        else:
-            judgment = f"FAIL (lossless={lossless_ok}, rtf={rtf_ok}, delay={delay_ok}, queue={not has_runaway_queue})"
+        elif not resource_stability_ok:
+            structured_status = "FAIL"
+            overall_status = f"FAIL (Resource stability failure: lossless={lossless_ok}, status={res.status}, queue={queue_status})"
+            judgment = overall_status
             passed = False
-
-        gate_10min_status = "PASS" if (is_full_10min_gate and passed) else (
-            "PARTIAL (Smoke test executed; 600s continuous stability requires user 10min live presentation)"
-            if not is_full_10min_gate else "FAIL"
-        )
+        elif not (rtf_ok and delay_ok):
+            structured_status = "FAIL"
+            overall_status = f"FAIL (Latency/RTF target exceeded: rtf_p95={res.rtf_stats.get('p95')}, delay_p95={res.estimated_delay_stats.get('p95')})"
+            judgment = overall_status
+            passed = False
+        elif is_full_10min_gate and not speech_presence_ok:
+            structured_status = "PARTIAL"
+            overall_status = f"PARTIAL (Sparse speech detected: {active_minutes}/{minute_count} active mins, {res.total_speech_seconds:.1f}s speech)"
+            judgment = (
+                f"PARTIAL (Sparse speech: only {active_minutes}/{minute_count} minutes had active speech, "
+                f"total speech {res.total_speech_seconds:.1f}s < 60s target; presentation continuity unverified)"
+            )
+            passed = False
+        elif is_full_10min_gate:
+            structured_status = "PARTIAL"
+            overall_status = "PARTIAL (Resource & streaming stability PASS; presentation speech coverage and human latency require PM review)"
+            judgment = (
+                "PARTIAL (10-minute system and resource stability satisfied; "
+                "continuous presentation coverage and human reference speech-end latency remain PARTIAL pending user/PM review)"
+            )
+            passed = True
+        else:  # smoke test (<600s)
+            structured_status = "PARTIAL"
+            overall_status = "PARTIAL (Smoke test passed; 600s continuous stability requires user 10min live presentation)"
+            judgment = overall_status
+            passed = True
 
         summary = {
             "scenario": 5,
             "benchmark": "10-Minute Live Microphone Stability Benchmark",
-            "git_revision": get_git_revision(),
+            "git_revision": git_info["revision"],
+            "git_dirty": git_info["is_dirty"],
             "timestamp_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "run_id": res.run_id,
             "test_type": test_type,
             "is_full_10min_gate": is_full_10min_gate,
-            "overall_status": gate_10min_status,
+            "overall_status": overall_status,
+            "structured_status": structured_status,
             "passed": passed,
             "judgment": judgment,
             "target_duration_seconds": duration_seconds,
@@ -201,6 +315,13 @@ def run_mic_benchmark(
             "total_inference_seconds": round(res.total_inference_seconds, 2),
             "speech_rtf": round(res.speech_rtf, 4),
             "throughput_rtf": round(res.throughput_rtf, 4),
+            "gate_breakdown": {
+                "resource_and_streaming_stability": "PASS" if resource_stability_ok else "FAIL",
+                "latency_and_rtf_performance": "PASS" if (rtf_ok and delay_ok) else "FAIL",
+                "speech_input_presence": "PASS" if speech_presence_ok else "INSUFFICIENT",
+                "continuous_presentation_coverage": "PARTIAL (Requires human/PM review; speech presence alone does not certify full continuous presentation)",
+                "human_reference_speech_end_latency": "PARTIAL (Awaiting human reference speech-end annotation)"
+            },
             "stability_metrics": {
                 "is_lossless": res.is_lossless,
                 "overrun_count": res.overrun_count,
@@ -208,7 +329,9 @@ def run_mic_benchmark(
                 "dropped_audio_seconds": round(res.dropped_audio_seconds, 3),
                 "dropped_segments": res.dropped_segments,
                 "worker_status": res.status,
-                "queue_wait_trend_drift_ms": round(trend_drift, 2)
+                "queue_stability_status": queue_status,
+                "queue_wait_trend_drift_ms": round(trend_drift, 2) if trend_drift is not None else None,
+                "has_runaway_queue": has_runaway_queue
             },
             "memory_metrics": {
                 "parent_rss_mb": final_mem["parent_rss_mb"],
@@ -219,7 +342,7 @@ def run_mic_benchmark(
             "per_minute_analysis": {
                 "total_minutes": minute_count,
                 "active_speech_minutes": active_minutes,
-                "continuous_speech_valid": continuous_speech_valid,
+                "speech_presence_ok": speech_presence_ok,
                 "minute_distribution": per_minute_stats
             },
             "latency_percentiles": {
@@ -228,24 +351,52 @@ def run_mic_benchmark(
                 "continuous_latency_p95_ms": res.continuous_latency_stats.get("p95"),
                 "queue_wait_p95_ms": res.queue_wait_stats.get("p95")
             },
+            "notes": {
+                "vad_duration_approximation": "VAD segment duration is an algorithmic approximation of voiced speech; not exact phonetic boundary.",
+                "egress_blocking": "Offline mic operation confirms local execution; OS kernel egress blocking remains PARTIAL pending network firewall validation."
+            },
             "periodic_snapshots": res.periodic_snapshots,
             "detected_segments": res.segments
         }
 
-        os.makedirs(os.path.dirname(output_json) or ".", exist_ok=True)
-        with open(output_json, "w", encoding="utf-8") as f:
-            json.dump(summary, f, ensure_ascii=False, indent=2)
+        atomic_write_json(output_json, summary)
 
         print("=================================================================")
         print(f" Evaluation Result: {judgment}")
+        print(f" Overall Status:    {overall_status}")
+        print(f" Structured Status: {structured_status}")
         print(f" Captured Audio:    {captured_audio_sec:.2f}s (Target: {duration_seconds:.1f}s)")
         print(f" Speech Duration:   {res.total_speech_seconds:.2f}s ({active_minutes}/{minute_count} active minutes)")
         print(f" Lossless Stream:   {'YES' if lossless_ok else 'NO'} (Overruns: {res.overrun_count}, Drops: {res.dropped_audio_chunks})")
         print(f" Memory (RSS):      Parent: {final_mem['parent_rss_mb']:.1f} MB | Child: {final_mem['child_rss_mb']:.1f} MB")
-        print(f" 10-Min Gate:       {gate_10min_status}")
         print(f" Result saved to:   {output_json}")
         print("=================================================================")
         return summary
+
+    except Exception as exc:
+        t_wall_elapsed = time.perf_counter() - t_wall_start
+        err_summary = {
+            "scenario": 5,
+            "benchmark": "10-Minute Live Microphone Stability Benchmark",
+            "git_revision": git_info["revision"],
+            "git_dirty": git_info["is_dirty"],
+            "timestamp_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "run_id": run_id,
+            "test_type": test_type,
+            "is_full_10min_gate": is_full_10min_gate,
+            "overall_status": f"ERROR (Exception in {failed_phase}: {type(exc).__name__})",
+            "structured_status": "ERROR",
+            "passed": False,
+            "judgment": f"ERROR: Execution failed during {failed_phase} with {type(exc).__name__}: {str(exc)}",
+            "failed_phase": failed_phase,
+            "exception_type": type(exc).__name__,
+            "exception_message": str(exc),
+            "target_duration_seconds": duration_seconds,
+            "measured_wall_seconds": round(t_wall_elapsed, 2)
+        }
+        atomic_write_json(output_json, err_summary)
+        print(f"Exception in {failed_phase}: {exc}", file=sys.stderr)
+        raise
 
     finally:
         if pipeline is not None:
@@ -260,7 +411,18 @@ def main():
                         help="Path to output JSON file (defaults to timestamped isolated file)")
     args = parser.parse_args()
 
-    run_mic_benchmark(duration_seconds=args.duration, output_json=args.output_json)
+    try:
+        summary = run_mic_benchmark(duration_seconds=args.duration, output_json=args.output_json)
+        status = summary.get("structured_status", "UNKNOWN")
+        if status == "PASS":
+            sys.exit(0)
+        elif status in ["NOT_RUN", "PARTIAL"]:
+            sys.exit(2)
+        else:  # FAIL, ERROR
+            sys.exit(1)
+    except Exception as exc:
+        print(f"Benchmark failed with fatal error: {exc}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
