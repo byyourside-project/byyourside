@@ -209,7 +209,8 @@ class TestTask01Revision05(unittest.TestCase):
             )
         t_total = time.perf_counter() - t0
 
-        # Estimate segments from known fixture: speech ends at 4.13s (audio collection: ~4.13s)
+        # Approximate breakdown based on known fixture length (speech ends at 4.13s)
+        # Note: Rigorous monotonic event measurement is implemented in test_regression_rev6.py
         collection_time = 4.13
         request_to_fail = 2.0  # enforced request deadline
         cleanup_time = t_total - (collection_time + request_to_fail)
@@ -218,8 +219,8 @@ class TestTask01Revision05(unittest.TestCase):
         self.assertLess(t_total, 7.5)
         self.assertLess(cleanup_time, 1.0, f"Cleanup time should be under 1.0s, was {cleanup_time:.3f}s")
 
-        print(f"\n[Rev5 Timing Breakdown] Total: {t_total:.3f}s | Audio Collection: ~{collection_time:.2f}s | "
-              f"Request-to-Failure: {request_to_fail:.2f}s | Cleanup: {cleanup_time:.3f}s")
+        print(f"\n[Rev5 Estimated Timing Breakdown] Total: {t_total:.3f}s | Audio Collection Est: ~{collection_time:.2f}s | "
+              f"Request-to-Failure Est: {request_to_fail:.2f}s | Cleanup Est: {cleanup_time:.3f}s")
 
     def test_rev5_mock_mic_streaming_timeout_before_duration(self):
         """
@@ -331,7 +332,7 @@ class TestTask01Revision05(unittest.TestCase):
         self.assertGreater(warm_ms, 0.0, "Clean warm-up must return positive infer_ms")
         self.assertTrue(stt.is_child_alive())
         stt.close()
-        print(f"\n[Rev5 Check] warm_up explicit TimeoutError in {elapsed:.3f}s; same-parent restart {warm_ms:.1f}ms.")
+        print(f"\n[Rev5 Check] warm_up explicit TimeoutError in {elapsed:.3f}s; same-parent recovery OK (dummy audio infer: {warm_ms:.1f}ms).")
 
     def test_rev5_normal_request_within_budget_and_pid_reuse(self):
         """
