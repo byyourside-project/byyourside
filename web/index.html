@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>곁 · 발표 연습</title><link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar"><a class="brand" href="/">곁<span>by your side</span></a><span class="privacy"><i></i>내 기기에서 분석</span></header>
+  <main>
+    <section class="intro"><span class="eyebrow">PRESENTATION PRACTICE</span><h1>한 번의 연습,<br>조금 더 편안한 발표.</h1><p>내 목소리를 다시 듣고, 말의 속도와 쉼을 살펴보세요.</p></section>
+    <section class="workspace">
+      <aside class="setup card">
+        <div class="section-title"><span class="step">01</span><h2>연습 준비</h2></div>
+        <label class="dropzone" id="dropzone" for="audio-file"><span class="upload-icon">↥</span><strong id="file-label">녹음 파일을 놓아주세요</strong><span>또는 눌러서 선택 · M4A, WAV, MP3 등</span><small>20분 · 80MB까지</small></label>
+        <input id="audio-file" class="file-input" type="file" accept="audio/*,.m4a,.webm" aria-label="녹음 파일 선택">
+        <label class="field-label" for="script">발표 대본 <span>선택</span></label>
+        <textarea id="script" rows="8" maxlength="12000" placeholder="발표할 내용을 문장별로 입력하세요.&#10;대본이 없어도 속도와 쉼을 살펴볼 수 있어요."></textarea>
+        <label class="field-label" for="target">목표 발표 시간 <span>선택</span></label>
+        <div class="duration-input"><input id="target" type="number" min="1" max="7200" step="1" placeholder="예: 60"><span>초</span></div>
+        <p class="field-help">입력한 경우에만 실제 발표 길이와 비교합니다.</p>
+        <button id="analyze" class="button primary" type="button">녹음 분석하기 <span>→</span></button>
+        <button id="demo" class="button secondary" type="button" hidden>보내준 첫 녹음으로 살펴보기</button>
+        <p id="status" class="status" role="status" aria-live="polite">파일을 선택하면 시작할 수 있어요.</p>
+      </aside>
+      <section class="results" aria-label="발표 분석 결과">
+        <div id="empty" class="empty card"><div class="empty-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><h2>내 발표를 돌아볼 시간</h2><p>녹음을 분석하면 구간별 전사와<br>속도·쉼에 대한 확인 포인트가 나타납니다.</p><div class="empty-tags"><span>말의 속도</span><span>쉼의 간격</span><span>대본 비교</span></div><small>영상·시선 분석과 실시간 코칭은 후속 기능입니다.</small></div>
+        <div id="review" hidden>
+          <div class="review-heading"><div><span class="eyebrow">YOUR REHEARSAL</span><h2 id="review-title">내 연습 기록</h2></div><a id="download" class="text-link">결과 저장 ↓</a></div>
+          <div id="summary" class="stats"></div>
+          <section class="player card"><div class="player-heading"><strong>다시 듣기</strong><span id="play-time">00:00</span></div><div id="timeline" class="timeline" aria-label="발화 구간"></div><audio id="player" controls preload="metadata"></audio><p>구간을 누르면 해당 위치부터 재생합니다.</p></section>
+          <div id="warnings" class="warnings"></div>
+          <div class="tabs" role="tablist"><button id="tab-transcript" class="selected" role="tab" aria-selected="true" aria-controls="transcript-panel">발화와 쉼</button><button id="tab-comparison" role="tab" aria-selected="false" aria-controls="comparison-panel">대본 비교</button></div>
+          <section id="transcript-panel" role="tabpanel" aria-labelledby="tab-transcript"><div class="panel-intro"><p>전사가 다르면 직접 수정해 주세요.<br><small>수정한 글자로 속도를 다시 계산하며, 시간 경계는 그대로 유지합니다.</small></p><button id="save" class="button small">수정 반영</button></div><div id="segments"></div></section>
+          <section id="comparison-panel" role="tabpanel" aria-labelledby="tab-comparison" hidden><p class="comparison-note">표현의 유사도를 비교한 결과입니다. ‘확인 필요’는 내용을 빠뜨렸다는 뜻이 아닙니다.</p><div id="comparisons"></div><button id="recompare" class="button secondary">왼쪽 대본·목표 시간으로 다시 비교</button></section>
+          <details class="method"><summary>분석 기준과 현재 한계</summary><div id="methods"></div><p>종합 점수나 시선 평가는 제공하지 않습니다. 저장된 파일 분석 결과이며 실제 보드 성능이나 실시간 발표 속도를 나타내지 않습니다.</p></details>
+        </div>
+      </section>
+    </section>
+    <footer>곁에 두고, 내 페이스대로.<span>음성 파일은 이 PC에서 처리하고 보관합니다.</span></footer>
+  </main>
+  <script src="/app.js" defer></script>
+</body>
+</html>
