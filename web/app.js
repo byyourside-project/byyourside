@@ -26,17 +26,17 @@ $('analyze').addEventListener('click', async () => {
       await new Promise(resolve => setTimeout(resolve, 900));
       const job = await request(`/api/jobs/${upload.id}`);
       if (job.status === 'error') throw new Error(job.error);
-      if (job.status === 'done') {render(job.report); status('분석이 끝났어요. 구간을 누르고 다시 들어보세요.'); return;}
+      if (job.status === 'done') {render(job.report); loadHistory(); status('분석이 끝났어요. 구간을 누르고 다시 들어보세요.'); return;}
       status(job.message || '녹음을 분석하고 있어요.');
     }
     throw new Error('분석 상태를 확인하지 못했습니다. 실행 창을 확인해 주세요.');
   } catch (error) {status(error.message, true);} finally {setBusy(false);}
 });
-$('demo').addEventListener('click', async () => {try {setBusy(true); status('첫 녹음을 불러오고 있어요.'); const data = await post('/api/demo', {}); $('script').value = data.script; $('target').value = ''; render(data); status('실제 첫 녹음의 자동 전사 결과입니다. 다시 듣고 수정할 수 있어요.');} catch(error) {status(error.message,true);} finally {setBusy(false);}});
+$('demo').addEventListener('click', async () => {try {setBusy(true); status('첫 녹음을 불러오고 있어요.'); const data = await post('/api/demo', {}); $('script').value = data.script; $('target').value = ''; render(data); loadHistory(); status('실제 첫 녹음의 자동 전사 결과입니다. 다시 듣고 수정할 수 있어요.');} catch(error) {status(error.message,true);} finally {setBusy(false);}});
 function seek(start) {const player = $('player'); player.currentTime = start; player.play().catch(() => status('재생 버튼을 눌러 음성을 들어주세요.'));}
 function render(data) {
   report = data; $('empty').hidden = true; $('review').hidden = false;
-  $('review-title').textContent = data.title; $('download').href = data.download_url;
+  $('review-title').value = data.title; $('download').href = data.download_url;
   if ($('player').getAttribute('src') !== data.audio_url) $('player').src = data.audio_url;
   const schedule = data.schedule;
   let scheduleValue = '미설정', scheduleDetail = '목표 시간을 입력해 주세요';
@@ -67,12 +67,65 @@ function render(data) {
     $('comparisons').append(card);
   });
   $('methods').replaceChildren(...Object.values(data.method).map(message=>el('p',message)));
+  markCurrent();
 }
 function collectEdits() {const edits={}; document.querySelectorAll('#segments textarea').forEach(node=>{const s=report.segments.find(s=>s.id===Number(node.dataset.segment)); if(s.edited || node.value!==s.asr_text) edits[node.dataset.segment]=node.value;}); return edits;}
-async function refresh() {if(!report)return; try {const options={script:$('script').value,target_seconds:target(),edits:collectEdits()}; setBusy(true); const data=await post(`/api/reviews/${report.id}`,options); render(data); status('수정한 전사와 대본을 반영했어요. 시간 경계는 자동 감지값입니다.');} catch(error){status(error.message,true);} finally{setBusy(false);}}
+async function refresh() {if(!report)return; try {const options={script:$('script').value,target_seconds:target(),edits:collectEdits()}; setBusy(true); const data=await post(`/api/reviews/${report.id}`,options); render(data); loadHistory(); status('수정한 전사와 대본을 반영했어요. 시간 경계는 자동 감지값입니다.');} catch(error){status(error.message,true);} finally{setBusy(false);}}
 $('save').onclick=refresh; $('recompare').onclick=refresh;
 function showTab(name) {['transcript','comparison'].forEach(key=>{const selected=key===name; $(`tab-${key}`).classList.toggle('selected',selected); $(`tab-${key}`).setAttribute('aria-selected',String(selected)); $(`${key}-panel`).hidden=!selected;});}
 $('tab-transcript').onclick=()=>showTab('transcript'); $('tab-comparison').onclick=()=>showTab('comparison');
 ['transcript','comparison'].forEach(key=>$(`tab-${key}`).addEventListener('keydown',event=>{if(['ArrowLeft','ArrowRight'].includes(event.key)){event.preventDefault();const next=key==='transcript'?'comparison':'transcript';showTab(next);$(`tab-${next}`).focus();}}));
 $('player').addEventListener('timeupdate',()=>{const now=$('player').currentTime; $('play-time').textContent=time(now); if(!report)return; document.querySelectorAll('.segment,.timeline button').forEach(node=>{const s=report.segments.find(s=>s.id===Number(node.dataset.segment)); node.classList.toggle(node.tagName==='BUTTON'?'active':'playing',Boolean(s&&s.start<=now&&now<s.end));});});
+const dateLabel = iso => {const d = new Date(iso); return Number.isNaN(d.getTime()) ? '' : `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;};
+function markCurrent() {document.querySelectorAll('.history-item').forEach(li => li.classList.toggle('current', Boolean(report && li.dataset.id === report.id)));}
+async function loadHistory() {
+  try {
+    const {reviews} = await request('/api/reviews');
+    $('history-count').textContent = reviews.length ? `${reviews.length}개` : '';
+    $('history-empty').hidden = reviews.length > 0;
+    $('history-list').replaceChildren(...reviews.map(item => {
+      const li = el('li', undefined, 'history-item'); li.dataset.id = item.id;
+      const open = el('button', undefined, 'history-open'); open.type = 'button';
+      const rate = item.avg_rate === null ? '—' : `${Math.round(item.avg_rate)} 자/분`;
+      open.append(el('strong', item.title), el('span', `${dateLabel(item.created_at)} · ${time(item.duration)} · ${rate}`));
+      if (item.review_state === 'user_edited_transcript') open.append(el('em', '전사 수정함'));
+      open.onclick = () => openReview(item.id);
+      const remove = el('button', '×', 'history-delete'); remove.type = 'button';
+      remove.title = '기록 삭제'; remove.setAttribute('aria-label', `${item.title} 기록 삭제`);
+      remove.onclick = () => deleteReview(item);
+      li.append(open, remove); return li;
+    }));
+    markCurrent();
+  } catch (error) {status(error.message, true);}
+}
+async function openReview(id) {
+  if (busy) return;
+  try {
+    setBusy(true);
+    const job = await request(`/api/jobs/${id}`);
+    if (job.status !== 'done') throw new Error(job.error || '아직 분석 중인 기록입니다.');
+    $('script').value = job.report.script || ''; $('target').value = job.report.schedule.target_seconds ?? '';
+    render(job.report); showTab('transcript'); status('저장된 연습 기록을 불러왔어요.');
+    $('review').scrollIntoView({behavior:'smooth', block:'start'});
+  } catch (error) {status(error.message, true);} finally {setBusy(false);}
+}
+async function deleteReview(item) {
+  if (busy || !confirm(`'${item.title}' 기록을 삭제할까요?\n녹음 파일과 분석 결과가 이 PC에서 지워지며 되돌릴 수 없습니다.`)) return;
+  try {
+    setBusy(true);
+    if (report && report.id === item.id) {const player = $('player'); player.pause(); player.removeAttribute('src'); player.load(); report = null; $('review').hidden = true; $('empty').hidden = false;}
+    await request(`/api/reviews/${item.id}`, {method:'DELETE'});
+    status('기록을 삭제했어요.');
+  } catch (error) {status(error.message, true);} finally {setBusy(false); loadHistory();}
+}
+$('review-title').addEventListener('keydown', event => {if (event.key === 'Enter') {event.preventDefault(); event.target.blur();}});
+$('review-title').addEventListener('change', async () => {
+  if (!report) return;
+  const title = $('review-title').value.trim();
+  if (!title) {$('review-title').value = report.title; return status('제목을 입력해 주세요.', true);}
+  if (title === report.title) return;
+  try {report = await post(`/api/reviews/${report.id}`, {title}); $('review-title').value = report.title; status('제목을 바꿨어요.'); loadHistory();}
+  catch (error) {$('review-title').value = report.title; status(error.message, true);}
+});
+loadHistory();
 request('/api/status').then(data=>{$('demo').hidden=!data.demo_available; if(!data.models_ready)status('새 파일 분석에는 음성 모델 준비가 필요합니다. 첫 녹음 예제는 바로 볼 수 있어요.');}).catch(error=>status(error.message,true));

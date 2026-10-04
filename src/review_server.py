@@ -1,4 +1,4 @@
-"""Loopback-only review UI. Audio and reports remain in recordings/reviews/."""
+"""Loopback-only review UI. Audio and reports remain in recordings/reviews/; recordings/reviews.db indexes them."""
 import json
 import mimetypes
 import re
@@ -7,15 +7,24 @@ import subprocess
 import sys
 import threading
 import uuid
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
 
 from src.review_analysis import build_review
 from src.review_audio import model_paths
+from src.review_db import ReviewDB
 
 MAX_UPLOAD = 80 * 1024 * 1024
 EXTENSIONS = {'.wav', '.m4a', '.mp3', '.flac', '.ogg', '.webm', '.aac'}
+MAX_TITLE = 80
+
+
+def clean_title(value):
+    if not isinstance(value, str) or not value.strip() or len(value.strip()) > MAX_TITLE:
+        raise ValueError(f'제목은 1~{MAX_TITLE}자로 입력해 주세요.')
+    return value.strip()
 
 
 class ReviewApp:
@@ -27,6 +36,8 @@ class ReviewApp:
         self.jobs = {}
         self.analysis_lock = threading.Lock()
         self.data_lock = threading.Lock()
+        self.db = ReviewDB(self.root / 'recordings' / 'reviews.db')
+        self.db.sync(self.storage)
 
     def folder(self, job_id):
         if not re.fullmatch(r'[a-f0-9]{32}', job_id):
@@ -40,11 +51,25 @@ class ReviewApp:
 
     def save_report(self, job_id, raw, options):
         report = build_review(raw, options.get('script', ''), options.get('target_seconds'), options.get('edits'))
+        if options.get('title'):
+            report['title'] = options['title']
         report.update(id=job_id, audio_url=f'/api/media/{job_id}', download_url=f'/api/export/{job_id}')
         folder = self.folder(job_id)
         self.write_json(folder / 'options.json', options)
         self.write_json(folder / 'report.json', report)
+        self.db.upsert(report)
         return report
+
+    def delete_review(self, job_id):
+        folder = self.folder(job_id)
+        if self.jobs.get(job_id, {}).get('status') == 'running':
+            raise ValueError('분석 중인 기록은 삭제할 수 없습니다.')
+        if not folder.is_dir() and not self.db.exists(job_id):
+            raise FileNotFoundError('기록을 찾지 못했습니다.')
+        if folder.is_dir():
+            shutil.rmtree(folder)  # Files first: if this fails the record stays listed and can be retried.
+        self.db.delete(job_id)
+        self.jobs.pop(job_id, None)
 
     @staticmethod
     def write_json(path, data):
@@ -196,12 +221,16 @@ def make_handler(app):
             with path.open('rb') as source:
                 source.seek(start)
                 remaining = end - start + 1
-                while remaining > 0:
-                    block = source.read(min(65536, remaining))
-                    if not block:
-                        break
-                    self.wfile.write(block)
-                    remaining -= len(block)
+                try:
+                    while remaining > 0:
+                        block = source.read(min(65536, remaining))
+                        if not block:
+                            break
+                        self.wfile.write(block)
+                        remaining -= len(block)
+                except ConnectionError:
+                    # The browser routinely drops audio streams when the user seeks or switches records.
+                    self.close_connection = True
 
         def do_GET(self):
             if not self.trusted_request():
@@ -212,6 +241,8 @@ def make_handler(app):
                     return self.serve_file(app.root / 'web' / ('index.html' if route == '/' else route[1:]))
                 if route == '/api/status':
                     return self.send_json(app.status())
+                if route == '/api/reviews':
+                    return self.send_json({'reviews': app.db.list_reviews()})
                 match = re.fullmatch(r'/api/(jobs|media|export)/([a-f0-9]{32})', route)
                 if match:
                     kind, job_id = match.groups()
@@ -227,6 +258,8 @@ def make_handler(app):
                         return self.send_json({'error': '분석 결과가 아직 없습니다.'}, 404)
                     return self.serve_file(folder / ('audio.wav' if kind == 'media' else 'report.json'), audio=kind == 'media', download=kind == 'export')
                 return self.send_json({'error': '페이지를 찾지 못했습니다.'}, 404)
+            except ConnectionError:
+                self.close_connection = True
             except (ValueError, OSError) as exc:
                 return self.send_json({'error': str(exc)}, 400)
 
@@ -249,7 +282,8 @@ def make_handler(app):
                     folder = app.folder(job_id)
                     folder.mkdir()
                     (folder / ('source' + suffix)).write_bytes(payload)
-                    app.write_json(folder / 'upload.json', {'source': 'source' + suffix, 'title': '내 연습 발표'})
+                    app.write_json(folder / 'upload.json', {'source': 'source' + suffix,
+                                                            'title': f'연습 {datetime.now():%m/%d %H:%M}'})
                     return self.send_json({'id': job_id}, 201)
                 if route == '/api/analyze':
                     data = self.json_body()
@@ -259,17 +293,35 @@ def make_handler(app):
                 match = re.fullmatch(r'/api/reviews/([a-f0-9]{32})', route)
                 if match:
                     data = self.json_body()
+                    if 'title' in data:
+                        data['title'] = clean_title(data['title'])
                     with app.data_lock:
                         folder = app.folder(match[1])
                         raw = json.loads((folder / 'raw.json').read_text(encoding='utf-8'))
                         options = json.loads((folder / 'options.json').read_text(encoding='utf-8'))
-                        for key in ('script', 'target_seconds', 'edits'):
+                        for key in ('script', 'target_seconds', 'edits', 'title'):
                             if key in data:
                                 options[key] = data[key]
                         return self.send_json(app.save_report(match[1], raw, options))
                 return self.send_json({'error': '요청을 찾지 못했습니다.'}, 404)
             except (ValueError, OSError, TypeError) as exc:
                 return self.send_json({'error': str(exc)}, 400)
+
+        def do_DELETE(self):
+            if not self.trusted_request():
+                return self.send_json({'error': '이 PC에서 열린 화면으로 접속해 주세요.'}, 403)
+            match = re.fullmatch(r'/api/reviews/([a-f0-9]{32})', urlsplit(self.path).path)
+            if not match:
+                return self.send_json({'error': '요청을 찾지 못했습니다.'}, 404)
+            try:
+                with app.data_lock:
+                    app.delete_review(match[1])
+                return self.send_json({'id': match[1], 'deleted': True})
+            except FileNotFoundError as exc:
+                return self.send_json({'error': str(exc)}, 404)
+            except (ValueError, OSError) as exc:
+                message = str(exc) if isinstance(exc, ValueError) else '파일을 지우지 못했습니다. 재생 중이면 멈춘 뒤 다시 시도해 주세요.'
+                return self.send_json({'error': message}, 400)
     return Handler
 
 
