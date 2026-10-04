@@ -889,6 +889,7 @@ class SpeechPipeline:
             "mode": "mic",
             "duration_seconds": duration_seconds,
             "device_sample_rate": in_rate,
+            "device_index": self.config.audio.device_index,
             "target_sample_rate": out_rate,
             "resample_ratio": f"{up}/{down}",
             "request_timeout_sec": effective_req_timeout,
@@ -924,14 +925,20 @@ class SpeechPipeline:
         stt_exception: Optional[Exception] = None
 
         SENTINEL = object()
+        first_audio = threading.Event()
+        last_callback_ts = 0.0
 
         # D [P2] Decoupled callback: acquisition and queue put ONLY (no heavy DSP/resample)
         def mic_callback(indata, frames, time_info, status):
-            nonlocal overrun_count, dropped_audio_chunks, dropped_audio_samples, total_captured_frames
+            nonlocal overrun_count, dropped_audio_chunks, dropped_audio_samples, total_captured_frames, stream_start_wall_ts, last_callback_ts
             if status and status.input_overflow:
                 overrun_count += 1
 
             now = time.perf_counter()
+            last_callback_ts = now
+            if total_captured_frames == 0:
+                stream_start_wall_ts = now - frames / float(in_rate)
+                first_audio.set()
             start_frame = total_captured_frames
             total_captured_frames += frames
             end_frame = total_captured_frames
@@ -972,6 +979,7 @@ class SpeechPipeline:
             try:
                 self.vad.reset()
                 endpoint_sample = 0
+                last_level_ts = 0.0
                 while not abort_event.is_set():
                     try:
                         item = audio_queue.get(timeout=0.1)
@@ -989,6 +997,14 @@ class SpeechPipeline:
                         samples_16k = signal.resample_poly(chunk_item.samples, up, down).astype(np.float32)
                     else:
                         samples_16k = chunk_item.samples
+
+                    if chunk_item.capture_ts - last_level_ts >= .2:
+                        last_level_ts = chunk_item.capture_ts
+                        rms = float(np.sqrt(np.mean(samples_16k ** 2)))
+                        peak = float(np.max(np.abs(samples_16k)))
+                        logger.log_event("audio_level", {"dbfs": round(20 * np.log10(max(rms, 1e-6)), 1),
+                            "peak_dbfs": round(20 * np.log10(max(peak, 1e-6)), 1),
+                            "received_sec": chunk_item.stream_sample_idx_end / float(out_rate)})
 
                     # Pass stream_sample_idx_start to detect gaps from dropped audio chunks
                     ready_segs = self.vad.process_chunk(
@@ -1164,15 +1180,32 @@ class SpeechPipeline:
 
         try:
             try:
-                stream_cls = stream_factory or sd.InputStream
-                with stream_cls(
-                    samplerate=in_rate,
-                    channels=1,
-                    dtype="float32",
-                    blocksize=blocksize,
-                    callback=mic_callback
-                ):
+                from src.microphone import open_input_stream, MicrophoneError
+                stream_args = dict(samplerate=in_rate, channels=1, dtype="float32", blocksize=blocksize, callback=mic_callback)
+                if stream_factory is not None:
+                    if self.config.audio.device_index is not None:
+                        stream_args["device"] = self.config.audio.device_index
+                    stream_context = stream_factory(**stream_args)
+                else:
+                    stream_context = open_input_stream(device=self.config.audio.device_index,
+                        expected_name=self.config.audio.device_name, **stream_args)
+                with stream_context:
+                    deadline = time.perf_counter() + 2
+                    while not first_audio.wait(.05):
+                        if stop_event is not None and stop_event.is_set():
+                            break
+                        if time.perf_counter() >= deadline:
+                            raise MicrophoneError("마이크가 열렸지만 입력 프레임을 받지 못했습니다. 입력 장치와 마이크 접근 권한을 확인해 주세요.")
+                    if first_audio.is_set():
+                        self.last_run_timing["stream_start_ts"] = stream_start_wall_ts
+                        logger.log_event("audio_stream_started", {"device_index": self.config.audio.device_index,
+                            "device_name": self.config.audio.device_name, "sample_rate": in_rate,
+                            "clock_origin_perf_counter": stream_start_wall_ts})
+                    start_wall_time = time.perf_counter()
+                    last_snapshot_time = start_wall_time
                     while time.perf_counter() - start_wall_time < duration_seconds:
+                        if stream_factory is None and first_audio.is_set() and time.perf_counter() - last_callback_ts > 2:
+                            raise MicrophoneError("마이크 입력이 중단됐습니다. 장치 연결을 확인하고 마이크를 다시 연결해 주세요.")
                         if abort_event.is_set() or (stop_event is not None and stop_event.is_set()):
                             break
                         time.sleep(0.05)

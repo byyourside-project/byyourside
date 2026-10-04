@@ -23,6 +23,13 @@ class PresentationApp:
         self.lock = threading.RLock()
         self.session = None
         self.audio_status = "idle"
+        self.audio_input_mode = None
+        self.audio_requested_device_id = None
+        self.audio_error = None
+        self.microphone = None
+        self.microphone_test = None
+        self.audio_level = None
+        self.audio_generation = 0
         self.audio_thread = None
         self.audio_stop = threading.Event()
         self.audio_events = queue.Queue(maxsize=512)
@@ -47,6 +54,10 @@ class PresentationApp:
         with self.lock:
             return {"deck": self.deck, "session": self.session.snapshot() if self.session else None,
                     "audio_status": self.audio_status, "coach": self.coach.name, "output_path": self.output_path,
+                    "audio_input_mode": self.audio_input_mode, "audio_error": self.audio_error,
+                    "audio_requested_device_id": self.audio_requested_device_id,
+                    "audio_done": self.audio_done, "microphone": self.microphone,
+                    "microphone_test": self.microphone_test, "audio_level": self.audio_level,
                     "voice_enabled": self.voice_enabled, "voice_available": bool(self.voice.executable),
                     "voice_last_event": self.voice_last_event}
 
@@ -67,10 +78,16 @@ class PresentationApp:
             if session.status == "ended":
                 session.save(self.output_dir)
 
-    def start(self, microphone=False):
+    def start(self, microphone=False, device_id=None):
+        from src.microphone import validate_device_id
+        validate_device_id(device_id)
         with self.lock:
             if self.session and self.session.status != "ended":
                 raise ValueError("이미 진행 중인 발표가 있습니다.")
+            if self.audio_thread and self.audio_thread.is_alive():
+                raise ValueError("이전 음성 입력을 종료하는 중입니다. 잠시 후 다시 시작해 주세요.")
+            if self.microphone_test and self.microphone_test["status"] == "testing":
+                raise ValueError("마이크 입력 확인이 끝난 뒤 발표를 시작해 주세요.")
             self.session = (ScriptSession if "script_plan" in self.deck else Session)(self.deck)
             self.voiced.clear()
             self.voice_last_event = None
@@ -87,10 +104,26 @@ class PresentationApp:
             self.audio_endpoint_sec = 0.0
             self.quality_flags.clear()
             self.audio_status = "loading" if microphone else "manual"
+            self.audio_input_mode = "mic" if microphone else "manual"
+            self.audio_requested_device_id = device_id if microphone else None
+            self.audio_error = None
+            self.microphone = None
+            self.audio_level = None
             if microphone:
-                self.audio_thread = threading.Thread(target=self._audio_loop, args=(self.session,), daemon=True)
-                self.audio_thread.start()
+                self._launch_audio(device_id)
         return self.state()
+
+    def _launch_audio(self, device_id):
+        self.audio_requested_device_id = device_id
+        self.audio_generation += 1
+        self.audio_stop.clear()
+        self.audio_done = False
+        self.audio_status = "loading"
+        self.audio_error = None
+        self.audio_level = None
+        self.audio_thread = threading.Thread(target=self._audio_loop,
+            args=(self.session, device_id, self.audio_generation), daemon=True)
+        self.audio_thread.start()
 
     def _enqueue_audio(self, event):
         try:
@@ -98,28 +131,41 @@ class PresentationApp:
         except queue.Full:
             self.event_overflow.set()
 
-    def _audio_loop(self, session):
+    def _audio_loop(self, session, device_id=None, generation=0):
         pipeline = None
+        sink = lambda event: self._enqueue_audio({**event, "audio_generation": generation})
         try:
             if self.pipeline_factory is None:
                 from src.pipeline import SpeechPipeline
                 from src.config import PipelineConfig
+                from src.microphone import resolve_input
+                selected = resolve_input(device_id)
+                with self.lock:
+                    self.microphone = {"device_id": selected["id"], "name": selected["name"], "sample_rate": selected["sample_rate"]}
+                    session._event("microphone_selected", **self.microphone)
                 config = PipelineConfig()
                 config.vad.min_silence_duration = .3
-                pipeline = SpeechPipeline(config, event_sink=self._enqueue_audio, terminal_output=False)
+                config.audio.device_index = selected["id"]
+                config.audio.device_name = selected["name"]
+                config.audio.device_sample_rate = selected["sample_rate"]
+                config.audio.chunk_size_samples = selected["blocksize"]
+                pipeline = SpeechPipeline(config, event_sink=sink, terminal_output=False)
             else:
-                pipeline = self.pipeline_factory(self._enqueue_audio)
+                pipeline = self.pipeline_factory(sink)
             pipeline.stt.warm_up(.5)
             if not self.audio_stop.is_set():
                 with self.lock:
-                    self.audio_status = "recording"
-                pipeline.run_mic(duration_seconds=7200, run_id=f"presentation_{session.session_id}",
+                    if self.pipeline_factory is not None:
+                        self.audio_status = "recording"
+                pipeline.run_mic(duration_seconds=7200, run_id=f"presentation_{session.session_id}_mic{generation}",
                                  stop_event=self.audio_stop, snapshot_interval_sec=10, recover_stt_timeouts=True)
         except Exception as exc:
             # Failures remain visible and are persisted even if initialization fails.
             with self.lock:
                 session.issue(f"마이크/STT 오류: {exc}")
                 self.audio_status = "error"
+                self.audio_error = str(exc)
+                session._event("audio_failed", error_type=type(exc).__name__, error=str(exc), generation=generation)
         finally:
             try:
                 if pipeline is not None:
@@ -178,11 +224,21 @@ class PresentationApp:
         if not session:
             return
         kind = event.get("event_type")
+        if event.get("audio_generation", self.audio_generation) != self.audio_generation:
+            return
         if kind == "run_start":
             self.audio_origin = event["clock_origin_perf_counter"] - session.origin
             session._event("audio_started", offset_sec=self.audio_origin, run_id=event["run_id"])
+        elif kind == "audio_stream_started":
+            self.audio_origin = event["clock_origin_perf_counter"] - session.origin
+            session._event("audio_input_opened", offset_sec=self.audio_origin, run_id=event["run_id"],
+                           device_name=event.get("device_name"), sample_rate=event.get("sample_rate"))
+            if not self.audio_done and self.audio_status != "error":
+                self.audio_status = "recording"
+        elif kind == "audio_level":
+            self.audio_level = {k: event[k] for k in ("dbfs", "peak_dbfs", "received_sec")}
         elif kind == "segment_result":
-            if self.audio_status == "recovering" and event.get("status", "OK") == "OK":
+            if not self.audio_done and self.audio_status == "recovering" and event.get("status", "OK") == "OK":
                 self.audio_status = "recording"
             self._schedule(session, session.ingest({
                 "segment_id": f"{event['run_id']}:{event['segment_id']}", "text": event["text"],
@@ -197,7 +253,8 @@ class PresentationApp:
                 session.issue("STT 재시도 후에도 전사하지 못한 구간이 있습니다. 음성 입력은 유지합니다.")
         elif kind == "stt_recovery":
             session._event("stt_recovery", **{k:v for k,v in event.items() if k not in ("event_type", "run_id")})
-            self.audio_status = "recording" if event["stage"] == "resumed" else "recovering"
+            if not self.audio_done and self.audio_status != "error":
+                self.audio_status = "recording" if event["stage"] == "resumed" else "recovering"
         elif kind == "speech_endpoint":
             self.audio_endpoint_sec = max(self.audio_endpoint_sec, self.audio_origin + event["audio_end_ms"] / 1000)
             for job in session.finalize_pending_through(self.audio_endpoint_sec):
@@ -240,14 +297,37 @@ class PresentationApp:
                     if self.voice_enabled and alert["key"] not in self.voiced and self._voice_valid(session, alert):
                         self.voiced.add(alert["key"])
                         self.voice.enqueue(session, alert)
-                if session.status == "stopping" and self.audio_done and self.audio_events.empty() and self.jobs.unfinished_tasks == 0:
-                    session.finish()
-                    self.output_path = session.save(self.output_dir)
+                if session.status == "stopping" and self.audio_done and self.audio_events.empty():
+                    # Closing the stream is also an utterance boundary. A hard
+                    # cut followed by an empty flush tail otherwise stays in
+                    # pending forever, without a final content judgment.
+                    pending_end = max((parts[-1]["end_sec"] for parts in session.pending.values() if parts), default=0)
+                    for job in session.finalize_pending_through(pending_end):
+                        self._schedule(session, job)
+                    if self.jobs.unfinished_tasks == 0:
+                        session.finish()
+                        self.output_path = session.save(self.output_dir)
                 if session.status == "running" and time.perf_counter() - self.last_saved >= 1:
                     self.output_path = session.save(self.output_dir)
                     self.last_saved = time.perf_counter()
 
     def command(self, action, body):
+        if action == "microphone_test":
+            from src.microphone import test_input, validate_device_id
+            device_id = body.get("device_id")
+            validate_device_id(device_id)
+            with self.lock:
+                if (self.audio_thread and self.audio_thread.is_alive()) or (self.microphone_test and self.microphone_test["status"] == "testing"):
+                    raise ValueError("음성 입력이나 입력 확인을 종료한 뒤 마이크를 시험해 주세요.")
+                self.microphone_test = {"status": "testing"}
+            try:
+                result = test_input(device_id)
+            except Exception as exc:
+                result = {"status": "error", "error": str(exc),
+                          "hint": "macOS 입력 장치와 서버를 실행한 앱의 마이크 접근 권한을 확인해 주세요."}
+            with self.lock:
+                self.microphone_test = result
+            return self.state()
         if action == "start":
             if not isinstance(body.get("microphone", False), bool):
                 raise ValueError("microphone은 bool이어야 합니다.")
@@ -257,14 +337,37 @@ class PresentationApp:
                 if self.session and self.session.status != "ended":
                     raise ValueError("이미 진행 중인 발표가 있습니다.")
                 self.voice_enabled = body.get("voice", False)
-            return self.start(body.get("microphone", False))
+            return self.start(body.get("microphone", False), body.get("device_id"))
         with self.lock:
-            if action in ("deck", "script"):
+            if action == "microphone_retry":
+                from src.microphone import validate_device_id
+                device_id = body.get("device_id")
+                validate_device_id(device_id)
+                if not self.session or self.session.status != "running" or self.audio_input_mode != "mic":
+                    raise ValueError("진행 중인 마이크 발표에서 다시 연결해 주세요.")
+                if not self.audio_done or (self.audio_thread and self.audio_thread.is_alive()):
+                    raise ValueError("기존 마이크 입력을 종료한 뒤 다시 연결해 주세요.")
+                if self.microphone_test and self.microphone_test["status"] == "testing":
+                    raise ValueError("입력 확인이 끝난 뒤 다시 연결해 주세요.")
+                self.session._event("microphone_retry", device_id=device_id)
+                self._launch_audio(device_id)
+            elif action in ("deck", "script"):
                 if self.session and self.session.status != "ended":
                     raise ValueError("발표 종료 후 자료를 변경해 주세요.")
-                self.deck = prepare_script(body.get("text"), body.get("duration_sec"), body.get("title", "대본 발표")) if action == "script" else validate_deck(body)
-                if action == "deck" and "script_text" in self.deck:
-                    self.deck = prepare_script(self.deck["script_text"], self.deck["total_duration_sec"], self.deck["title"])
+                next_deck = prepare_script(body.get("text"), body.get("duration_sec"), body.get("title", "대본 발표")) if action == "script" else validate_deck(body)
+                if action == "deck" and "script_text" in next_deck:
+                    next_deck = prepare_script(next_deck["script_text"], next_deck["total_duration_sec"], next_deck["title"])
+                self.deck = next_deck
+                # The ended session already has its own saved deck snapshot.
+                # Clearing the active reference lets preparation show the new
+                # materials, instead of the previous presentation's results.
+                self.session = None
+                self.audio_status = "idle"
+                self.output_path = None
+                self.voice_last_event = None
+                self.audio_input_mode = None
+                self.audio_error = None
+                self.audio_level = None
             elif action == "voice":
                 if not isinstance(body.get("enabled"), bool):
                     raise ValueError("enabled는 bool이어야 합니다.")
@@ -284,7 +387,7 @@ class PresentationApp:
                         alert["expires_sec"] = self.session.elapsed()
                     self.audio_stop.set()
                 else:
-                    if self.audio_status in ("loading", "recording", "recovering"):
+                    if self.audio_input_mode != "manual":
                         raise ValueError("마이크 모드에서는 직접 전사를 입력할 수 없습니다.")
                     now = self.session.elapsed()
                     self._schedule(self.session, self.session.ingest({
@@ -341,6 +444,9 @@ def make_server(app, port=8765):
             route = urlparse(self.path).path
             if route == "/api/state":
                 self.send_json(200, app.state())
+            elif route == "/api/microphones":
+                from src.microphone import input_devices
+                self.send_json(200, input_devices())
             elif route == "/api/export":
                 with app.lock:
                     if not app.session:

@@ -66,21 +66,37 @@ class ScriptSession(Session):
             self.last_confirmed_audio_end = max(ends)
         self._review_script()
 
+    def issue(self, message):
+        super().issue(message)
+        # Loss/error evidence invalidates a gap immediately, including alerts
+        # that were queued before the quality issue arrived.
+        self._review_script()
+
     def _review_script(self):
         points = self.plan["units"]
         explained = [i for i,p in enumerate(points) if self.states[p["keypoint_id"]]["status"] == "explained"]
         frontier = max(explained, default=-1)
         # Two later anchors, or an explained final unit, establish a passed section.
-        self.missing_ids = [p["keypoint_id"] for i,p in enumerate(points) if i < frontier and
-                            self.states[p["keypoint_id"]]["status"] == "unconfirmed" and
-                            (sum(j > i for j in explained) >= 2 or frontier == len(points)-1)]
+        candidates = [p["keypoint_id"] for i,p in enumerate(points) if i < frontier and
+                      self.states[p["keypoint_id"]]["status"] == "unconfirmed" and
+                      (sum(j > i for j in explained) >= 2 or frontier == len(points)-1)]
+        if self.issues:
+            # The presenter may have spoken a section that capture or inference
+            # lost. Preserve confirmed content while withholding a missing claim.
+            for kid in candidates:
+                self.states[kid].update(status="uncertain", reason="기록 품질 문제가 있어 건너뛴 구간인지 확인이 필요합니다.")
+            if candidates:
+                self._event("judgment_deferred", reason="record_quality_issue", keypoint_ids=candidates)
+            self.missing_ids = []
+        else:
+            self.missing_ids = candidates
         for kid in self.missing_ids:
             self.alert(f"script_missing:{kid}", "건너뛴 설명을 확인해 주세요. " + next(p["text"] for p in points if p["keypoint_id"]==kid)[:140], 2)
         for alert in self.alerts:
             if alert["key"].startswith("script_missing:") and alert["key"].split(":",1)[1] not in self.missing_ids:
                 if alert["expires_sec"] > self.elapsed():
                     alert["expires_sec"] = self.elapsed()
-                    self._event("alert_retracted", key=alert["key"], reason="script_evidence_changed")
+                    self._event("alert_retracted", key=alert["key"], reason="record_quality_issue" if self.issues else "script_evidence_changed")
 
     def progress(self):
         points = self.plan["units"]

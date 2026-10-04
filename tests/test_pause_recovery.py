@@ -27,7 +27,7 @@ class PauseContextTests(unittest.TestCase):
         coach = OllamaCoach('fixture')
         coach.model_info = {}
         requests = []
-        response = {'done': True, 'message': {'content': json.dumps({'1': {'s': 1, 'e': [2]}})}}
+        response = {'done': True, 'message': {'content': json.dumps({'1': {'s': 1, 'e': [1]}})}}
         def request(url, body):
             requests.append(json.loads(body))
             return response
@@ -38,8 +38,8 @@ class PauseContextTests(unittest.TestCase):
         result = coach.evaluate(job)
         self.assertEqual(result['judgments'][0]['evidence_segment_ids'], ['a', 'b'])
         data = json.loads(requests[-1]['messages'][-1]['content'])
-        self.assertEqual(data['utterances'], [{'number': 2, 'text': '로컬에서 실행합니다'}])
-        response['message']['content'] = json.dumps({'1': {'s': 1, 'e': [1]}})
+        self.assertEqual(data['utterances'], [{'number': 1, 'text': '로컬에서 실행합니다'}])
+        response['message']['content'] = json.dumps({'1': {'s': 1, 'e': [2]}})
         with self.assertRaises(ValueError):
             coach.evaluate(job)
 
@@ -50,6 +50,19 @@ class PauseContextTests(unittest.TestCase):
         self.assertEqual(len(job['segments']),12)
         self.assertEqual(len(self.session.segments),20)
         self.assertTrue(any(e['type']=='context_trimmed' for e in self.session.events))
+
+    def test_incomplete_followup_preserves_already_confirmed_content(self):
+        complete = self.feed('기기에서 음성을 인식합니다', sid='complete')
+        self.session.apply(complete, self.coach.evaluate(complete))
+        self.assertEqual(self.session.states['p1']['status'], 'explained')
+        partial = self.feed('이 기기에서', start=5, end=6, sid='partial')
+        response = self.coach.evaluate(partial)
+        for judgment in response['judgments']:
+            if judgment['keypoint_id'] == 'p1':
+                judgment.update(status='uncertain', reason='미완성', reason_code='incomplete_tail', evidence_segment_ids=['partial'])
+        self.session.apply(partial, response)
+        self.assertEqual(self.session.states['p1']['status'], 'explained')
+        self.assertTrue(any(e['type'] == 'judgment_deferred' and e.get('reason') == 'incomplete_tail' for e in self.session.events))
 
 class RecoveryTests(unittest.TestCase):
     def test_actual_isolated_stt_recovers_after_timeout_without_ending_capture(self):

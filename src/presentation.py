@@ -350,10 +350,17 @@ class Session:
                 raise ValueError("설명됨·판단불가 상태에는 발화 근거가 필요합니다.")
             if not isinstance(j.get("reason"), str) or not j["reason"].strip() or len(j["reason"]) > 2000:
                 raise ValueError("판단 사유가 올바르지 않습니다.")
+            if j.get("reason_code") not in (None, "incomplete_tail", "quantity_mismatch"):
+                raise ValueError("판단 보류 사유 코드가 올바르지 않습니다.")
+            if j.get("reason_code") is not None and state != "uncertain":
+                raise ValueError("판단 보류 사유는 판단불가 상태에만 사용할 수 있습니다.")
         # Validate the entire response before changing state.
         for j in judgments:
             previous = self.states[j["keypoint_id"]]
             if previous["status"] == "explained" and j["status"] == "unconfirmed":
+                continue
+            if previous["status"] == "explained" and j.get("reason_code") == "incomplete_tail":
+                self._event("judgment_deferred", keypoint_id=j["keypoint_id"], reason="incomplete_tail", version=version)
                 continue
             if previous["status"] == "uncertain" and j["status"] == "unconfirmed":
                 continue

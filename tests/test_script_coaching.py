@@ -52,6 +52,44 @@ class ScriptTests(unittest.TestCase):
         self.assertEqual(self.session.missing_ids,[])
         self.assertTrue(any(e['type']=='alert_retracted' for e in self.session.events))
 
+    def test_lost_input_withholds_gap_claim_but_later_explanation_still_confirms(self):
+        self.feed('첫 문장은 목적을 설명합니다.')
+        message = '음성 입력 손실 감지: dropped_chunks=1'
+        self.session.issue(message)
+        self.feed('세 번째 문장은 일정을 설명합니다.',30,'third')
+        self.feed('마지막 문장은 결과를 설명합니다.',40,'last')
+        self.assertEqual(self.session.missing_ids, [])
+        self.assertEqual(self.session.states['script-2']['status'], 'uncertain')
+        self.assertFalse(any(a['key'].startswith('script_missing:') for a in self.session.snapshot()['alerts']))
+        self.assertEqual(sum(s['status'] == 'explained' for s in self.session.states.values()), 3)
+        # A quality issue remains in the report without preventing new reliable
+        # content evidence from completing a previously unresolved section.
+        self.feed('두 번째 문장은 비용을 설명합니다.',45,'late')
+        self.assertEqual(self.session.states['script-2']['status'], 'explained')
+        self.assertEqual(self.session.progress()['fraction'], 1)
+        self.assertEqual(self.session.issues, [message])
+
+    def test_new_capture_stt_or_model_issue_immediately_retracts_existing_gap_alert(self):
+        for message in ('음성 입력 손실 감지: dropped_chunks=1',
+                        'STT 재시도 후에도 전사하지 못한 구간이 있습니다.',
+                        '내용 판단 오류: model timeout'):
+            with self.subTest(message=message):
+                self.setUp()
+                self.feed('첫 문장은 목적을 설명합니다.')
+                self.feed('세 번째 문장은 일정을 설명합니다.',30,'third')
+                self.feed('마지막 문장은 결과를 설명합니다.',40,'last')
+                self.assertEqual(self.session.missing_ids, ['script-2'])
+                confirmed = {kid: json.dumps(state) for kid,state in self.session.states.items()
+                             if state['status'] == 'explained'}
+                self.session.issue(message)
+                self.assertEqual(self.session.missing_ids, [])
+                self.assertEqual(self.session.states['script-2']['status'], 'uncertain')
+                self.assertFalse(any(a['key'].startswith('script_missing:') for a in self.session.snapshot()['alerts']))
+                self.assertTrue(any(e['type'] == 'alert_retracted' for e in self.session.events))
+                for kid,state in confirmed.items():
+                    self.assertEqual(json.dumps(self.session.states[kid]), state)
+                self.assertIn(message, self.session.issues)
+
     def test_fast_slow_and_stale_evidence_suppress_pace(self):
         for elapsed, expected in ((15,'fast'),(100,'slow')):
             self.setUp()

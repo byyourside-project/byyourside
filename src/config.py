@@ -58,6 +58,7 @@ class AudioConfig:
     channels: int = 1
     chunk_size_samples: int = 1536       # 32ms at 48kHz (corresponds to 512 at 16kHz)
     device_index: Optional[int] = None   # None for default input device
+    device_name: Optional[str] = None   # Detect hot-swap/reindexing before opening
 
 @dataclass
 class QueueConfig:
@@ -79,4 +80,3 @@ class PipelineConfig:
     def validate(self) -> None:
         self.vad.validate()
         self.stt.validate()
-

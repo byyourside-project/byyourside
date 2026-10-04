@@ -57,6 +57,25 @@ class OllamaTests(unittest.TestCase):
         self.assertEqual(self.coach.model_info["digest"], "fixture")
         self.assertGreater(self.coach.last_metrics["wall_ms"], 0)
 
+    def test_positive_model_answer_cannot_confirm_a_different_quantity(self):
+        self.job["slide"]["keypoints"][0]["text"] = "발화를 최대 4초 구간으로 분할합니다"
+        self.job["segments"][0]["text"] = "발화를 최대 삼 초 구간으로 나눕니다."
+        result = self.coach.evaluate(self.job)["judgments"][0]
+        self.assertEqual(result["status"], "uncertain")
+        self.assertEqual(result["reason_code"], "quantity_mismatch")
+        self.assertEqual(result["evidence_segment_ids"], ["s1"])
+        self.assertTrue(self.coach.last_metrics["guard_decisions"])
+
+    def test_unfinished_positive_model_answer_waits_for_continuation(self):
+        self.job["segments"][0].update(text="음성을 외부로 보내지 않고", start_sec=0, end_sec=1)
+        result = self.coach.evaluate(self.job)["judgments"][0]
+        self.assertEqual(result["status"], "uncertain")
+        self.assertEqual(result["reason_code"], "incomplete_tail")
+        self.job["segments"].append({"segment_id": "s2", "text": "이 기기에서 실행합니다.", "start_sec": 1.5, "end_sec": 3})
+        result = self.coach.evaluate(self.job)["judgments"][0]
+        self.assertEqual(result["status"], "explained")
+        self.assertEqual(result["evidence_segment_ids"], ["s1", "s2"])
+
     def test_multiple_points_and_split_evidence_restore_original_ids(self):
         self.job["slide"]["keypoints"].append({"keypoint_id": "long-original-id", "text": "시간 안내", "aliases": []})
         self.job["segments"].append({"segment_id": "s2", "text": "로컬에서 실행합니다."})

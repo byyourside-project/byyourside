@@ -1,26 +1,128 @@
 'use strict';
 const $ = id => document.getElementById(id);
-let current = null, busy = false, lastAlerts = '';
+let current = null, busy = false, lastAlerts = '', commandRevision = 0, pendingCommand = null;
+let microphonesRefreshing = false, microphoneDevicesError = '', selectedMicrophone = '', microphoneSelectionChanged = false;
+let missingMicrophoneId = null, knownMicrophoneIds = null;
+let microphoneSelectionInitialized = false, microphoneSelectionTouched = false;
+const microphoneNames = new Map();
 const statuses = {unconfirmed:'미확인', explained:'설명됨', uncertain:'판단불가'};
 const seconds = n => `${n < 0 ? '+' : ''}${String(Math.floor(Math.abs(n) / 60)).padStart(2,'0')}:${String(Math.floor(Math.abs(n) % 60)).padStart(2,'0')}`;
 function node(tag, text, cls) { const e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (cls) e.className = cls; return e; }
 function error(message) { $('error').textContent = message; $('error').hidden = !message; }
 async function api(action, data) {
-  const response = await fetch('/api/' + action, data === undefined ? {} : {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
-  const result = await response.json();
-  if (!response.ok) throw new Error(result.error || '요청을 처리할 수 없습니다.');
-  return result;
+  const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), data === undefined ? 8000 : 30000);
+  try {
+    const response = await fetch('/api/' + action, {signal:controller.signal, ...(data === undefined ? {} : {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)})});
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || '요청을 처리할 수 없습니다.');
+    return result;
+  } catch (e) {
+    if (e.name === 'AbortError') throw new Error('서버 응답이 지연됩니다. 잠시 뒤 다시 시도해 주세요.');
+    throw e;
+  } finally { clearTimeout(timeout); }
 }
 async function command(action, data) {
-  if (busy) return;
+  if (busy) return false;
+  const captureRequested = action === 'microphone_test' || action === 'microphone_retry' || (action === 'start' && data?.microphone === true);
+  if (captureRequested && selectedMicrophone !== '' && selectedMicrophone === missingMicrophoneId) {
+    error('선택한 마이크가 연결 해제되었습니다. 시스템 기본 마이크나 연결된 다른 장치를 직접 선택해 주세요.');
+    return false;
+  }
   busy = true;
+  pendingCommand = action;
+  commandRevision++;
   error('');
-  try { render(await api(action, data)); } catch (e) { error(e.message); }
-  finally { busy = false; }
+  renderMicrophoneState();
+  try { render(await api(action, data)); return true; } catch (e) { error(e.message); return false; }
+  finally { busy = false; pendingCommand = null; renderMicrophoneState(); }
+}
+function microphoneDeviceId() { return selectedMicrophone === '' ? null : Number(selectedMicrophone); }
+function renderMicrophoneState() {
+  const data = current || {}, active = !!data.session && data.session.status !== 'ended';
+  const running = data.session?.status === 'running', status = data.audio_status;
+  const testing = pendingCommand === 'microphone_test' || data.microphone_test?.status === 'testing';
+  const selectionUnavailable = selectedMicrophone !== '' && selectedMicrophone === missingMicrophoneId;
+  const reconnectable = running && data.audio_input_mode === 'mic' && (status === 'error' || data.audio_done === true || status === 'stopped');
+  const usingMicrophone = active ? data.audio_input_mode === 'mic' : $('input-mode').value === 'mic';
+  $('microphone-panel').hidden = !usingMicrophone;
+  $('microphone-device').disabled = busy || microphonesRefreshing || testing || (active && !reconnectable);
+  $('microphone-refresh').disabled = busy || microphonesRefreshing || testing || (active && !reconnectable);
+  $('microphone-test').disabled = busy || microphonesRefreshing || testing || active || selectionUnavailable;
+  $('microphone-test').textContent = testing ? '입력 확인 중…' : '마이크 입력 확인';
+  $('microphone-refresh').textContent = microphonesRefreshing ? '장치 확인 중…' : '장치 새로고침';
+  $('microphone-retry').hidden = !reconnectable;
+  $('microphone-retry').disabled = busy || microphonesRefreshing || testing || selectionUnavailable;
+  $('microphone-retry').textContent = pendingCommand === 'microphone_retry' ? '다시 연결 중…' : '마이크 다시 연결';
+  $('start').disabled = active || busy || (usingMicrophone && (microphonesRefreshing || testing || selectionUnavailable));
+  const device = data.microphone;
+  $('microphone-state').textContent = testing ? '마이크를 열어 입력 확인 중' : selectionUnavailable ? '선택한 장치 연결 해제됨' : active && status === 'loading' ? '음성 모델과 입력 장치 준비 중' : active && status === 'recording' ? (device?.name || '마이크') + ' · 입력 수신 중' : active && status === 'recovering' ? '마이크 입력 유지 · 전사 복구 중' : reconnectable ? '마이크 연결 확인이 필요합니다.' : device ? `${device.name} · ${Math.round(device.sample_rate)} Hz` : '발표 전에 입력을 확인하세요.';
+  const level = active && !testing ? data.audio_level : null, test = testing || active || microphoneSelectionChanged ? null : data.microphone_test;
+  const peak = level && Number.isFinite(level.peak_dbfs) ? level.peak_dbfs : Number.isFinite(test?.peak_dbfs) ? test.peak_dbfs : null;
+  $('microphone-meter').value = peak === null ? 0 : Math.max(0, Math.min(60, peak + 60));
+  $('microphone-level-text').textContent = peak === null ? '아직 입력을 확인하지 않았습니다.' : `최대 ${peak.toFixed(1)} dBFS` + (Number.isFinite(level?.received_sec) ? ` · 입력 ${level.received_sec.toFixed(1)}초 수신` : '') + (peak < -55 ? ' · 신호가 약하거나 조용합니다.' : '');
+  let message = microphoneDevicesError;
+  if (testing) message = '한 문장 말해 보세요. 입력 신호와 연결 상태를 확인합니다.';
+  if (!message && !active && microphoneSelectionChanged) message = '선택한 장치의 입력을 다시 확인하세요.';
+  if (!message && test?.status === 'testing') message = '한 문장 말해 보세요. 입력 신호와 연결 상태를 확인합니다.';
+  if (!message && test?.status === 'ok') message = '마이크 연결을 확인했습니다.' + (Number.isFinite(test.peak_dbfs) && test.peak_dbfs < -55 ? ' 신호가 약합니다. 마이크에 가까이 말하거나 입력 음량을 확인하세요.' : ' 발표를 시작할 수 있습니다.');
+  if (!message && test?.status === 'error') message = test.error || '마이크 입력을 열 수 없습니다.';
+  if (reconnectable && !testing) message = data.audio_error || [...(data.session?.issues || [])].reverse().find(issue => /마이크|PortAudio|음성 입력/.test(issue)) || message || '입력 장치를 확인한 뒤 마이크를 다시 연결하세요.';
+  if (test?.hint && (test.status === 'error' || reconnectable)) message += (message ? ' ' : '') + test.hint;
+  if (selectionUnavailable) message = (reconnectable && message ? message + ' ' : '') + '선택한 장치가 연결 해제되었습니다. 시스템 기본 마이크나 연결된 다른 장치를 직접 선택해 주세요.';
+  $('microphone-message').textContent = message;
+  $('microphone-message').classList.toggle('microphone-error', !testing && (!!microphoneDevicesError || test?.status === 'error' || reconnectable || selectionUnavailable));
+}
+async function refreshMicrophones() {
+  if (microphonesRefreshing) return;
+  microphonesRefreshing = true;
+  microphoneDevicesError = '';
+  renderMicrophoneState();
+  try {
+    const data = await api('microphones');
+    knownMicrophoneIds = new Set((data.devices || []).map(device => String(device.id)));
+    const options = [node('option', '시스템 기본 마이크')];
+    options[0].value = '';
+    for (const device of data.devices || []) {
+      microphoneNames.set(String(device.id), device.name);
+      const option = node('option', `${device.name}${device.is_default ? ' · 기본' : ''}`);
+      option.value = String(device.id);
+      options.push(option);
+    }
+    const missing = selectedMicrophone !== '' && !options.some(option => option.value === selectedMicrophone);
+    missingMicrophoneId = missing ? selectedMicrophone : null;
+    if (missing) {
+      microphoneSelectionChanged = true;
+      const option = node('option', `${microphoneNames.get(selectedMicrophone) || '선택한 마이크'} · 연결 해제됨 · 다시 선택 필요`);
+      option.value = selectedMicrophone;
+      options.push(option);
+    }
+    $('microphone-device').replaceChildren(...options);
+    $('microphone-device').value = selectedMicrophone;
+    microphoneDevicesError = data.error || (!(data.devices || []).length ? '사용할 수 있는 입력 장치가 없습니다. 장치를 연결하고 새로고침하세요.' : '');
+  } catch (e) { microphoneDevicesError = '입력 장치를 확인할 수 없습니다. ' + e.message; }
+  finally { microphonesRefreshing = false; renderMicrophoneState(); }
 }
 function render(data) {
   current = data;
   const s = data.session, deck = s ? s.deck : data.deck, index = s ? s.index : 0;
+  if (!microphoneSelectionInitialized) {
+    microphoneSelectionInitialized = true;
+    const requested = data.audio_requested_device_id;
+    if (!microphoneSelectionTouched && s && s.status !== 'ended' && data.audio_input_mode === 'mic' && (requested === null || Number.isInteger(requested))) {
+      selectedMicrophone = requested === null ? '' : String(requested);
+      if (selectedMicrophone !== '') {
+        if (data.microphone?.device_id === requested) microphoneNames.set(selectedMicrophone, data.microphone.name);
+        const unavailable = knownMicrophoneIds !== null && !knownMicrophoneIds.has(selectedMicrophone);
+        if (unavailable) missingMicrophoneId = selectedMicrophone;
+        if (!Array.from($('microphone-device').children).some(option => option.value === selectedMicrophone)) {
+          const option = node('option', `${microphoneNames.get(selectedMicrophone) || '기존 선택 마이크'} · ${unavailable ? '연결 해제됨 · 다시 선택 필요' : '장치 목록 확인 중'}`);
+          option.value = selectedMicrophone;
+          $('microphone-device').append(option);
+        }
+      }
+      $('microphone-device').value = selectedMicrophone;
+    }
+  }
   const slide = deck.slides[index], running = s && s.status === 'running';
   $('deck-title').textContent = deck.title;
   const script = s?.script_progress, plan = deck.script_plan;
@@ -39,9 +141,9 @@ function render(data) {
 
   $('connection').textContent = '로컬 연결됨';
   $('connection-dot').style.background = '#5b9470';
-  $('audio-status').textContent = ({idle:'준비',manual:'전사 입력 모드',loading:'모델 준비 중',recording:'● 마이크 사용 중',recovering:'● 음성 입력 유지 · STT 복구 중',stopped:'음성 입력 종료',error:'음성 입력 오류'})[data.audio_status] || data.audio_status;
-  $('session-status').textContent = !s ? '발표 준비' : ({running:'발표 진행 중',stopping:'마지막 발화 처리 중',ended:'발표 종료'})[s.status];
-  $('start').disabled = s && s.status !== 'ended';
+  $('audio-status').textContent = ({idle:'준비',manual:'전사 입력 모드',loading:'모델·마이크 준비 중',recording:'● 마이크 입력 수신 중',recovering:'● 음성 입력 유지 · STT 복구 중',stopped:'음성 입력 종료',error:'마이크 입력 오류'})[data.audio_status] || data.audio_status;
+  $('session-status').textContent = !s ? '발표 준비' : s.status === 'running' && data.audio_status === 'loading' ? '음성 입력 준비 중' : s.status === 'running' && data.audio_input_mode === 'mic' && ['error', 'stopped'].includes(data.audio_status) ? '발표 진행 중 · 음성 입력 중단' : ({running:'발표 진행 중',stopping:'마지막 발화 처리 중',ended:'발표 종료'})[s.status];
+  renderMicrophoneState();
   $('stop').disabled = !running;
   $('input-mode').disabled = !!s && s.status !== 'ended';
   $('upload').disabled = !!s && s.status !== 'ended';
@@ -88,22 +190,28 @@ function render(data) {
   $('transcripts').replaceChildren(...(segments.length ? segments.map(segment => {
     const e = node('div',undefined,'utterance'); e.append(node('small',`${seconds(segment.start_sec)}–${seconds(segment.end_sec)} · ${segment.slide_ids.map(id => deck.slides.find(x=>x.slide_id===id)?.title || id).join(' / ')} · ${segment.endpoint_reason}`),node('p',segment.text)); return e;
   }) : [node('div','확정된 발화가 여기에 표시됩니다.','empty')]));
-  const manual = running && !['loading','recording','recovering'].includes(data.audio_status);
+  const manual = running && data.audio_input_mode === 'manual';
   $('utterance').disabled = !manual; $('submit').disabled = !manual; $('endpoint').disabled = !manual;
-  $('utterance-form').hidden = ['loading','recording','recovering'].includes(data.audio_status);
+  $('utterance-form').hidden = data.audio_input_mode !== 'manual';
   $('issues').replaceChildren(...(s?.issues.length ? s.issues.map(issue => node('p',issue,'issue')) : [node('p',s ? `이벤트 ${s.event_count}개 기록 · ${s.status === 'ended' ? '종료 결과 저장됨' : '자동 저장 중'}` : '발표를 시작하면 기록합니다.','muted')]));
   $('save-path').textContent = data.output_path || '';
 }
-$('start').addEventListener('click',() => command('start',{microphone:$('input-mode').value === 'mic',voice:$('voice-enabled').checked}));
+$('start').addEventListener('click',() => command('start',{microphone:$('input-mode').value === 'mic',device_id:microphoneDeviceId(),voice:$('voice-enabled').checked}));
+$('input-mode').addEventListener('change',renderMicrophoneState);
+$('microphone-device').addEventListener('change',e => {selectedMicrophone = e.target.value; microphoneSelectionChanged = true; microphoneSelectionTouched = true; renderMicrophoneState();});
+$('microphone-refresh').addEventListener('click',refreshMicrophones);
+$('microphone-test').addEventListener('click',() => {microphoneSelectionChanged = false; return command('microphone_test',{device_id:microphoneDeviceId()});});
+$('microphone-retry').addEventListener('click',() => command('microphone_retry',{device_id:microphoneDeviceId()}));
 $('stop').addEventListener('click',() => command('stop',{}));
 $('previous').addEventListener('click',() => command('navigate',{index:current.session.index-1}));
 $('next').addEventListener('click',() => command('navigate',{index:current.session.index+1}));
-$('utterance-form').addEventListener('submit',async e => {e.preventDefault(); if (!$('utterance').value.trim()) return; await command('utterance',{text:$('utterance').value,endpoint_reason:$('endpoint').value}); if ($('error').hidden) $('utterance').value='';});
+$('utterance-form').addEventListener('submit',async e => {e.preventDefault(); if (!$('utterance').value.trim()) return; if (await command('utterance',{text:$('utterance').value,endpoint_reason:$('endpoint').value})) $('utterance').value='';});
 $('upload').addEventListener('click',() => $('deck-file').click());
 $('deck-file').addEventListener('change',async e => {try {const file=e.target.files[0]; if(file) {if(file.size>1048576) throw new Error('자료 파일은 1MB 이하로 준비해 주세요.'); await command('deck',JSON.parse(await file.text()));}} catch(err) {error(err.message);} e.target.value='';});
 $('export').addEventListener('click',async () => {try {const data=await api('export'); const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));const a=node('a');a.href=url;a.download=`presentation_${data.session_id}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);} catch(e) {error(e.message);}});
-async function poll() {try {if(!busy) render(await api('state'));} catch(e) {$('connection').textContent='서버 연결 끊김';$('connection-dot').style.background='#c17960';} finally {setTimeout(poll,200);}}
+async function poll() {const revision = commandRevision; try {if(!busy) {const data = await api('state'); if (!busy && revision === commandRevision) render(data);}} catch(e) {$('connection').textContent='서버 연결 끊김';$('connection-dot').style.background='#c17960';} finally {setTimeout(poll,200);}}
 poll();
+refreshMicrophones();
 
 $('prepare-script').addEventListener('click',async () => {await command('script',{text:$('script-text').value,duration_sec:Number($('script-duration').value)});});
 $('voice-enabled').addEventListener('change',() => command('voice',{enabled:$('voice-enabled').checked}));
