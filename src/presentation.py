@@ -334,13 +334,13 @@ class Session:
         self._event("coaching_action", action="UNCERTAIN" if any(j["status"] == "uncertain" for j in judgments) else "NO_ACTION", version=version)
 
     def fail_job(self, job, message):
-        if self.revisions.get(job["version"], {}).get("revision") != job["revision"]:
+        if job["session_id"] != self.session_id or self.status == "ended" or self.revisions.get(job["version"], {}).get("revision") != job["revision"]:
             return
         self.revisions[job["version"]]["pending"] = False
         for p in job["slide"]["keypoints"]:
-            if self.states[p["keypoint_id"]]["status"] != "explained":
-                self.states[p["keypoint_id"]].update(status="uncertain", reason=message,
-                                                     evidence_segment_ids=[s["segment_id"] for s in job["segments"]])
+            # A failed new judgment may hide a retraction of earlier evidence.
+            self.states[p["keypoint_id"]].update(status="uncertain", reason=message,
+                                                 evidence_segment_ids=[s["segment_id"] for s in job["segments"]])
         self.issue(message)
 
     def snapshot(self):

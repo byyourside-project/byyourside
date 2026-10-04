@@ -17,6 +17,13 @@ def percentile(values, fraction):
     return values[lower] + (values[math.ceil(offset)] - values[lower]) * (offset - lower)
 
 
+def reference_points(case):
+    """Separate reference labels from the slide sent to a provider."""
+    return case.get("points", [{"point": case.get("point"), "aliases": case.get("aliases", []),
+                                "expected_status": case.get("expected_status"),
+                                "expected_missing": case.get("expected_missing")}])
+
+
 def validate_cases(dataset):
     cases = dataset.get("cases") if isinstance(dataset, dict) else None
     if not isinstance(cases, list) or not cases:
@@ -26,12 +33,16 @@ def validate_cases(dataset):
         if not isinstance(case, dict) or not isinstance(case.get("id"), str) or not case["id"] or case["id"] in seen:
             raise ValueError("각 평가 항목에는 고유한 id가 필요합니다.")
         seen.add(case["id"])
-        if case.get("expected_status") not in ("explained", "uncertain", "unconfirmed") or not isinstance(case.get("expected_missing"), bool):
-            raise ValueError("평가 정답 상태와 expected_missing bool이 필요합니다.")
+        points = reference_points(case)
+        if not isinstance(points, list) or not points:
+            raise ValueError("비어 있지 않은 points 배열이 필요합니다.")
+        for point in points:
+            if not isinstance(point, dict) or point.get("expected_status") not in ("explained", "uncertain", "unconfirmed") or not isinstance(point.get("expected_missing"), bool):
+                raise ValueError("평가 정답 상태와 expected_missing bool이 필요합니다.")
+            if not isinstance(point.get("point"), str) or not point["point"].strip():
+                raise ValueError("핵심 항목 문장이 필요합니다.")
         if case.get("phase", "ongoing") not in ("ongoing", "transition", "end"):
             raise ValueError("phase는 ongoing/transition/end여야 합니다.")
-        if not isinstance(case.get("point"), str) or not case["point"].strip():
-            raise ValueError("핵심 항목 문장이 필요합니다.")
         if not isinstance(case.get("utterances"), list) or not case["utterances"]:
             raise ValueError("발화 배열이 필요합니다.")
         for utterance in case["utterances"]:
@@ -45,10 +56,12 @@ def evaluate_cases(dataset, coach, progress=None, latency_budget_ms=2000.0):
     rows, latency, calls, valid_calls = [], [], 0, 0
     for case in cases:
         current_time = [0.0]
+        references = reference_points(case)
+        points = [{"keypoint_id": f"k{index}", "text": point["point"], "required": True,
+                   "aliases": point.get("aliases", [])} for index, point in enumerate(references, 1)]
         deck = {"deck_id": "evaluation", "title": "정답 전사 평가", "total_duration_sec": 600,
                 "slides": [{"slide_id": "s1", "title": case.get("title", "핵심 내용"), "target_duration_sec": 300,
-                            "keypoints": [{"keypoint_id": "k1", "text": case["point"], "required": True,
-                                           "aliases": case.get("aliases", [])}]},
+                            "keypoints": points},
                            {"slide_id": "s2", "title": "다음", "target_duration_sec": 300, "keypoints": []}]}
         session = Session(deck, clock=lambda: current_time[0])
         responses, errors, timings = [], [], []
@@ -80,21 +93,28 @@ def evaluate_cases(dataset, coach, progress=None, latency_budget_ms=2000.0):
         elif case.get("phase") == "end":
             session.stop()
             session.finish()
-        actual = session.states["k1"]["status"]
-        missing = any(event["type"] == "slide_review" and "k1" in event["missing_candidates"] for event in session.events)
+        outcomes = []
+        for point, reference in zip(points, references):
+            kid = point["keypoint_id"]
+            actual = session.states[kid]["status"]
+            missing = any(e["type"] == "slide_review" and kid in e["missing_candidates"] for e in session.events)
+            outcomes.append({"keypoint_id": kid, "expected_status": reference["expected_status"],
+                             "actual_status": actual, "expected_missing": reference["expected_missing"],
+                             "actual_missing": missing, "correct": not errors and actual == reference["expected_status"] and missing == reference["expected_missing"],
+                             "evidence_segment_ids": session.states[kid]["evidence_segment_ids"],
+                             "decision_reason": session.states[kid]["reason"]})
         row = {"id": case["id"], "category": case.get("category", "uncategorized"),
-               "expected_status": case["expected_status"], "actual_status": actual,
-               "expected_missing": case["expected_missing"], "actual_missing": missing,
-               "correct": not errors and actual == case["expected_status"] and missing == case["expected_missing"],
-               "errors": errors, "model_responses": responses, "timings": timings,
-               "evidence_segment_ids": session.states["k1"]["evidence_segment_ids"],
-               "decision_reason": session.states["k1"]["reason"]}
+               "correct": all(p["correct"] for p in outcomes), "points": outcomes,
+               "errors": errors, "model_responses": responses, "timings": timings}
+        if len(outcomes) == 1:
+            row.update(outcomes[0])  # Preserve single-point report fields.
         rows.append(row)
         if progress:
             progress(row)
     correct = sum(row["correct"] for row in rows)
-    safe_cases = [row for row in rows if not row["expected_missing"]]
-    not_explained = [row for row in rows if row["expected_status"] != "explained"]
+    point_rows = [point for row in rows for point in row["points"]]
+    safe_cases = [row for row in point_rows if not row["expected_missing"]]
+    not_explained = [row for row in point_rows if row["expected_status"] != "explained"]
     false_missing = sum(row["actual_missing"] for row in safe_cases)
     false_explained = sum(row["actual_status"] == "explained" for row in not_explained)
     by_category = {}
@@ -109,12 +129,13 @@ def evaluate_cases(dataset, coach, progress=None, latency_budget_ms=2000.0):
              "false_missing_rate": false_missing / len(safe_cases) <= .05 if safe_cases else None,
              "false_explained_rate": false_explained / len(not_explained) <= .05 if not_explained else None,
              "request_latency": p95 <= latency_budget_ms if p95 is not None else None}
-    return {"schema_version": 1, "provider": coach.name,
+    return {"schema_version": 2, "provider": coach.name,
             "prompt_version": getattr(coach, "prompt_version", None),
             "model": getattr(coach, "model", None), "model_info": getattr(coach, "model_info", None),
             "dataset_sha256": hashlib.sha256(json.dumps(dataset, ensure_ascii=False, sort_keys=True).encode()).hexdigest(),
             "dataset_scope": dataset.get("purpose", "development cases"), "total_cases": len(rows),
             "correct_cases": correct, "accuracy": accuracy, "inference_calls": calls,
+            "total_points": len(point_rows), "point_accuracy": sum(p["correct"] for p in point_rows) / len(point_rows),
             "valid_response_count": valid_calls, "valid_response_rate": valid_calls / calls if calls else None,
             "error_cases": sum(bool(row["errors"]) for row in rows),
             "false_missing": {"count": false_missing, "eligible_cases": len(safe_cases)},

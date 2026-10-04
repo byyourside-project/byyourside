@@ -35,7 +35,7 @@ def main():
             dataset = json.loads(args.dataset.read_text(encoding="utf-8"))
             warm_up = coach.warm_up(args.timeout) if args.warm_up and isinstance(coach, OllamaCoach) else None
             result = evaluate_cases(dataset, coach, latency_budget_ms=latency_budget,
-                                    progress=lambda row: print(f"{row['id']}: {'OK' if row['correct'] else 'FAIL'} expected={row['expected_status']} actual={row['actual_status']} errors={len(row['errors'])}", flush=True))
+                                    progress=lambda row: print(f"{row['id']}: {'OK' if row['correct'] else 'FAIL'} expected={row.get('expected_status', [p['expected_status'] for p in row['points']])} actual={row.get('actual_status', [p['actual_status'] for p in row['points']])} errors={len(row['errors'])}", flush=True))
             result["warm_up"] = {"requested": args.warm_up, "metrics": warm_up,
                                  "excluded_from_case_latency": warm_up is not None}
             if warm_up is not None:

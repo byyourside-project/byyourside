@@ -67,6 +67,12 @@ class OllamaTests(unittest.TestCase):
         self.assertEqual(result[1]["status"], "unconfirmed")
         self.assertEqual(self.requests[0]["format"]["properties"]["1"]["items"]["enum"], [-1, 0, 1, 2])
 
+    def test_missing_or_extra_points_and_invalid_status_evidence_are_rejected(self):
+        for content in ({}, {"1": [1, 1], "2": [-1]}, [[1, 1]], {"1": [True, 1]}, {"1": [2, 1]}, {"1": [1]}, {"1": [0]}, {"1": [-1, 1]}):
+            self.response["message"]["content"] = json.dumps(content)
+            with self.assertRaises(ValueError):
+                self.coach.evaluate(self.job)
+
     def test_missing_or_remote_model_never_triggers_inference_or_download(self):
         for models in ([], [{"name": "test:1b", "size": 100, "remote_host": "remote"}]):
             self.models = models

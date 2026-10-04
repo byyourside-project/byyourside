@@ -34,6 +34,21 @@ class PresentationTests(unittest.TestCase):
         return self.session.ingest({"segment_id": sid, "text": text, "start_sec": start,
                                     "end_sec": end, "endpoint_reason": endpoint, "status": status})
 
+    def test_failed_retraction_invalidates_prior_confirmation_but_stale_failure_does_not(self):
+        first = self.feed("기기에서 음성을 인식합니다")
+        self.session.apply(first, self.coach.evaluate(first))
+        second = self.feed("앞선 설명을 정정합니다. 외부 서버에서 인식합니다", start=4, end=5, sid="two")
+        self.session.fail_job(first, "stale failure")
+        self.assertEqual(self.session.states["p1"]["status"], "explained")
+        self.session.fail_job(second, "model timeout")
+        self.assertEqual(self.session.states["p1"]["status"], "uncertain")
+        self.assertIn("two", self.session.states["p1"]["evidence_segment_ids"])
+        self.session.stop()
+        self.session.finish()
+        before = copy.deepcopy(self.session.states)
+        self.session.fail_job(second, "late failure")
+        self.assertEqual(self.session.states, before)
+
     def test_deck_rejects_duplicate_ids_and_nonfinite_duration(self):
         for invalid in (float("nan"), -1, True, 0):
             deck = copy.deepcopy(DECK)

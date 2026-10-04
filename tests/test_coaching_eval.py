@@ -14,6 +14,36 @@ def dataset(status="explained", phase="ongoing", missing=False):
 
 
 class EvaluationTests(unittest.TestCase):
+    def test_multiple_points_are_scored_and_never_leak_reference_labels(self):
+        source = {"cases": [{"id": "multi", "points": [
+            {"point": "기기 안에서 인식합니다", "expected_status": "explained", "expected_missing": False},
+            {"point": "4초 구간으로 나눕니다", "expected_status": "unconfirmed", "expected_missing": True}],
+            "phase": "transition", "utterances": [{"text": "기기 안에서 인식합니다"}]}]}
+        jobs = []
+        class InspectCoach(PhraseCoach):
+            def evaluate(self, job):
+                jobs.append(copy.deepcopy(job))
+                return super().evaluate(job)
+        report = evaluate_cases(source, InspectCoach())
+        self.assertEqual(report["accuracy"], 1)
+        self.assertEqual(report["total_points"], 2)
+        self.assertEqual(report["point_accuracy"], 1)
+        self.assertEqual(report["false_missing"]["eligible_cases"], 1)
+        self.assertEqual(report["false_explained"]["eligible_cases"], 1)
+        self.assertNotIn("expected_", json.dumps(jobs))
+        # One incorrect point makes the entire slide case incorrect.
+        source["cases"][0]["points"][1]["expected_status"] = "explained"
+        report = evaluate_cases(source, PhraseCoach())
+        self.assertEqual(report["accuracy"], 0)
+        self.assertEqual(report["point_accuracy"], .5)
+
+    def test_invalid_multi_point_references_are_rejected(self):
+        for points in ([], None, ["invalid"], [{"point": "abc", "expected_status": "PASS", "expected_missing": False}]):
+            source = dataset()
+            source["cases"][0]["points"] = points
+            with self.assertRaises(ValueError):
+                evaluate_cases(source, PhraseCoach())
+
     def test_reference_labels_are_not_sent_to_provider(self):
         jobs = []
         class InspectCoach(PhraseCoach):

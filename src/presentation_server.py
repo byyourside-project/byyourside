@@ -111,6 +111,7 @@ class PresentationApp:
                 session, job = self.jobs.get(timeout=.1)
             except queue.Empty:
                 continue
+            began = None
             try:
                 with self.lock:
                     stale = session.revisions.get(job["version"], {}).get("revision") != job["revision"]
@@ -120,12 +121,18 @@ class PresentationApp:
                     with self.lock:
                         session.apply(job, response)
                         session._event("coaching_inference", provider=self.coach.name,
+                                       outcome="response_validated",
                                        version=job["version"], revision=job["revision"],
                                        wall_ms=(time.perf_counter() - began) * 1000,
                                        metrics=getattr(self.coach, "last_metrics", {}))
             except Exception as exc:
                 with self.lock:
                     session.fail_job(job, f"내용 판단 오류: {exc}")
+                    if began is not None:
+                        session._event("coaching_inference", provider=self.coach.name,
+                                       outcome="error", error_type=type(exc).__name__,
+                                       version=job["version"], revision=job["revision"],
+                                       wall_ms=(time.perf_counter() - began) * 1000)
             finally:
                 self.jobs.task_done()
 

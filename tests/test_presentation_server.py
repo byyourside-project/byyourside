@@ -129,6 +129,10 @@ class PresentationServerTests(unittest.TestCase):
         wait_for(lambda: self.app.state()["session"]["states"]["p1"]["status"] == "uncertain")
         self.assertEqual(self.app.state()["session"]["status"], "running")
         self.assertIn("model timeout", self.app.state()["session"]["issues"][0])
+        events = [e for e in self.app.session.events if e["type"] == "coaching_inference"]
+        self.assertEqual(events[-1]["outcome"], "error")
+        self.assertEqual(events[-1]["error_type"], "TimeoutError")
+        self.assertGreater(events[-1]["wall_ms"], 0)
 
     def test_mic_initialization_failure_remains_visible_and_saved(self):
         def broken(sink):
