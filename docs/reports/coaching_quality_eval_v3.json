@@ -1,0 +1,980 @@
+{
+  "schema_version": 1,
+  "provider": "ollama_local",
+  "prompt_version": "semantic_v3_indexed",
+  "model": "qwen3:14b",
+  "model_info": {
+    "name": "qwen3:14b",
+    "digest": "bdbd181c33f2ed1b31c972991882db3cf4d192569092138a7d29e973cd9debe8",
+    "size": 9276198565,
+    "details": {
+      "parent_model": "",
+      "format": "gguf",
+      "family": "qwen3",
+      "families": [
+        "qwen3"
+      ],
+      "parameter_size": "14.8B",
+      "quantization_level": "Q4_K_M",
+      "context_length": 40960,
+      "embedding_length": 5120
+    }
+  },
+  "dataset_sha256": "dda18abb8984435dd4771e60560ddc82ceac2b55aab0e01807580fdac70fc4d9",
+  "dataset_scope": "Hand-authored development regression cases; not a held-out user benchmark.",
+  "total_cases": 20,
+  "correct_cases": 20,
+  "accuracy": 1.0,
+  "inference_calls": 20,
+  "valid_response_count": 20,
+  "valid_response_rate": 1.0,
+  "error_cases": 0,
+  "false_missing": {
+    "count": 0,
+    "eligible_cases": 19
+  },
+  "false_explained": {
+    "count": 0,
+    "eligible_cases": 12
+  },
+  "latency": {
+    "unit": "ms",
+    "scope": "Case model requests after a separately measured dummy warm-up; not audio-to-screen latency.",
+    "count": 20,
+    "p50": 944.3680834956467,
+    "p95": 976.7107940191637,
+    "max": 1107.409457967151,
+    "first_call": 955.3719999967143,
+    "subsequent_p95": 983.5896710690573,
+    "budget_ms": 2000.0
+  },
+  "category_breakdown": {
+    "exact": {
+      "count": 1,
+      "correct": 1
+    },
+    "paraphrase": {
+      "count": 2,
+      "correct": 2
+    },
+    "alias": {
+      "count": 1,
+      "correct": 1
+    },
+    "negation": {
+      "count": 2,
+      "correct": 2
+    },
+    "number_error": {
+      "count": 1,
+      "correct": 1
+    },
+    "decimal_error": {
+      "count": 1,
+      "correct": 1
+    },
+    "number_correct": {
+      "count": 1,
+      "correct": 1
+    },
+    "spoken_number": {
+      "count": 1,
+      "correct": 1
+    },
+    "unrelated": {
+      "count": 1,
+      "correct": 1
+    },
+    "not_yet_mentioned": {
+      "count": 1,
+      "correct": 1
+    },
+    "missing_on_transition": {
+      "count": 1,
+      "correct": 1
+    },
+    "incomplete": {
+      "count": 1,
+      "correct": 1
+    },
+    "continuation": {
+      "count": 1,
+      "correct": 1
+    },
+    "correction": {
+      "count": 1,
+      "correct": 1
+    },
+    "retraction": {
+      "count": 1,
+      "correct": 1
+    },
+    "stt_uncertainty": {
+      "count": 1,
+      "correct": 1
+    },
+    "instruction_in_utterance": {
+      "count": 1,
+      "correct": 1
+    },
+    "unit_error": {
+      "count": 1,
+      "correct": 1
+    }
+  },
+  "gate_breakdown": {
+    "development_accuracy": true,
+    "response_validity": true,
+    "false_missing_rate": true,
+    "false_explained_rate": true,
+    "request_latency": true
+  },
+  "status": "DEVELOPMENT_PASS",
+  "generalization_status": "NOT_RUN",
+  "real_audio_status": "NOT_RUN",
+  "cases": [
+    {
+      "id": "C01",
+      "category": "exact",
+      "expected_status": "explained",
+      "actual_status": "explained",
+      "expected_missing": false,
+      "actual_missing": false,
+      "correct": true,
+      "errors": [],
+      "model_responses": [
+        {
+          "judgments": [
+            {
+              "keypoint_id": "k1",
+              "status": "explained",
+              "reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다.",
+              "evidence_segment_ids": [
+                "C01:1"
+              ]
+            }
+          ]
+        }
+      ],
+      "timings": [
+        {
+          "wall_ms": 955.3719999967143,
+          "provider_metrics": {
+            "wall_ms": 955.2308329730295,
+            "total_duration": 950003042,
+            "load_duration": 2906083,
+            "prompt_eval_count": 483,
+            "prompt_eval_duration": 320901000,
+            "eval_count": 9,
+            "eval_duration": 615267000
+          }
+        }
+      ],
+      "evidence_segment_ids": [
+        "C01:1"
+      ],
+      "decision_reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다."
+    },
+    {
+      "id": "C02",
+      "category": "paraphrase",
+      "expected_status": "explained",
+      "actual_status": "explained",
+      "expected_missing": false,
+      "actual_missing": false,
+      "correct": true,
+      "errors": [],
+      "model_responses": [
+        {
+          "judgments": [
+            {
+              "keypoint_id": "k1",
+              "status": "explained",
+              "reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다.",
+              "evidence_segment_ids": [
+                "C02:1"
+              ]
+            }
+          ]
+        }
+      ],
+      "timings": [
+        {
+          "wall_ms": 932.243249961175,
+          "provider_metrics": {
+            "wall_ms": 932.0203749812208,
+            "total_duration": 919657292,
+            "load_duration": 1160584,
+            "prompt_eval_count": 499,
+            "prompt_eval_duration": 297991000,
+            "eval_count": 9,
+            "eval_duration": 612108000
+          }
+        }
+      ],
+      "evidence_segment_ids": [
+        "C02:1"
+      ],
+      "decision_reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다."
+    },
+    {
+      "id": "C03",
+      "category": "alias",
+      "expected_status": "explained",
+      "actual_status": "explained",
+      "expected_missing": false,
+      "actual_missing": false,
+      "correct": true,
+      "errors": [],
+      "model_responses": [
+        {
+          "judgments": [
+            {
+              "keypoint_id": "k1",
+              "status": "explained",
+              "reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다.",
+              "evidence_segment_ids": [
+                "C03:1"
+              ]
+            }
+          ]
+        }
+      ],
+      "timings": [
+        {
+          "wall_ms": 951.1795840226114,
+          "provider_metrics": {
+            "wall_ms": 951.0404999600723,
+            "total_duration": 939469000,
+            "load_duration": 1009708,
+            "prompt_eval_count": 504,
+            "prompt_eval_duration": 317090000,
+            "eval_count": 9,
+            "eval_duration": 618608000
+          }
+        }
+      ],
+      "evidence_segment_ids": [
+        "C03:1"
+      ],
+      "decision_reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다."
+    },
+    {
+      "id": "C04",
+      "category": "paraphrase",
+      "expected_status": "explained",
+      "actual_status": "explained",
+      "expected_missing": false,
+      "actual_missing": false,
+      "correct": true,
+      "errors": [],
+      "model_responses": [
+        {
+          "judgments": [
+            {
+              "keypoint_id": "k1",
+              "status": "explained",
+              "reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다.",
+              "evidence_segment_ids": [
+                "C04:1"
+              ]
+            }
+          ]
+        }
+      ],
+      "timings": [
+        {
+          "wall_ms": 956.4224170171656,
+          "provider_metrics": {
+            "wall_ms": 956.2966660014354,
+            "total_duration": 945125208,
+            "load_duration": 1521291,
+            "prompt_eval_count": 495,
+            "prompt_eval_duration": 316624000,
+            "eval_count": 9,
+            "eval_duration": 623025000
+          }
+        }
+      ],
+      "evidence_segment_ids": [
+        "C04:1"
+      ],
+      "decision_reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다."
+    },
+    {
+      "id": "C05",
+      "category": "negation",
+      "expected_status": "uncertain",
+      "actual_status": "uncertain",
+      "expected_missing": false,
+      "actual_missing": false,
+      "correct": true,
+      "errors": [],
+      "model_responses": [
+        {
+          "judgments": [
+            {
+              "keypoint_id": "k1",
+              "status": "uncertain",
+              "reason": "로컬 모델이 관련 발화의 모순·불일치 또는 불확실성을 판단했습니다.",
+              "evidence_segment_ids": [
+                "C05:1"
+              ]
+            }
+          ]
+        }
+      ],
+      "timings": [
+        {
+          "wall_ms": 949.0132499486208,
+          "provider_metrics": {
+            "wall_ms": 948.9144579856656,
+            "total_duration": 933595917,
+            "load_duration": 1434667,
+            "prompt_eval_count": 500,
+            "prompt_eval_duration": 309034000,
+            "eval_count": 9,
+            "eval_duration": 619401000
+          }
+        }
+      ],
+      "evidence_segment_ids": [
+        "C05:1"
+      ],
+      "decision_reason": "로컬 모델이 관련 발화의 모순·불일치 또는 불확실성을 판단했습니다."
+    },
+    {
+      "id": "C06",
+      "category": "negation",
+      "expected_status": "uncertain",
+      "actual_status": "uncertain",
+      "expected_missing": false,
+      "actual_missing": false,
+      "correct": true,
+      "errors": [],
+      "model_responses": [
+        {
+          "judgments": [
+            {
+              "keypoint_id": "k1",
+              "status": "uncertain",
+              "reason": "로컬 모델이 관련 발화의 모순·불일치 또는 불확실성을 판단했습니다.",
+              "evidence_segment_ids": [
+                "C06:1"
+              ]
+            }
+          ]
+        }
+      ],
+      "timings": [
+        {
+          "wall_ms": 918.548625020776,
+          "provider_metrics": {
+            "wall_ms": 918.48791600205,
+            "total_duration": 909315042,
+            "load_duration": 1036042,
+            "prompt_eval_count": 486,
+            "prompt_eval_duration": 275507000,
+            "eval_count": 9,
+            "eval_duration": 626823000
+          }
+        }
+      ],
+      "evidence_segment_ids": [
+        "C06:1"
+      ],
+      "decision_reason": "로컬 모델이 관련 발화의 모순·불일치 또는 불확실성을 판단했습니다."
+    },
+    {
+      "id": "C07",
+      "category": "number_error",
+      "expected_status": "uncertain",
+      "actual_status": "uncertain",
+      "expected_missing": false,
+      "actual_missing": false,
+      "correct": true,
+      "errors": [],
+      "model_responses": [
+        {
+          "judgments": [
+            {
+              "keypoint_id": "k1",
+              "status": "uncertain",
+              "reason": "로컬 모델이 관련 발화의 모순·불일치 또는 불확실성을 판단했습니다.",
+              "evidence_segment_ids": [
+                "C07:1"
+              ]
+            }
+          ]
+        }
+      ],
+      "timings": [
+        {
+          "wall_ms": 939.3340420210734,
+          "provider_metrics": {
+            "wall_ms": 939.2244999762625,
+            "total_duration": 932520250,
+            "load_duration": 716417,
+            "prompt_eval_count": 491,
+            "prompt_eval_duration": 301609000,
+            "eval_count": 9,
+            "eval_duration": 628257000
+          }
+        }
+      ],
+      "evidence_segment_ids": [
+        "C07:1"
+      ],
+      "decision_reason": "로컬 모델이 관련 발화의 모순·불일치 또는 불확실성을 판단했습니다."
+    },
+    {
+      "id": "C08",
+      "category": "decimal_error",
+      "expected_status": "uncertain",
+      "actual_status": "uncertain",
+      "expected_missing": false,
+      "actual_missing": false,
+      "correct": true,
+      "errors": [],
+      "model_responses": [
+        {
+          "judgments": [
+            {
+              "keypoint_id": "k1",
+              "status": "uncertain",
+              "reason": "로컬 모델이 관련 발화의 모순·불일치 또는 불확실성을 판단했습니다.",
+              "evidence_segment_ids": [
+                "C08:1"
+              ]
+            }
+          ]
+        }
+      ],
+      "timings": [
+        {
+          "wall_ms": 949.4489159551449,
+          "provider_metrics": {
+            "wall_ms": 949.3018329958431,
+            "total_duration": 938123625,
+            "load_duration": 632041,
+            "prompt_eval_count": 488,
+            "prompt_eval_duration": 310151000,
+            "eval_count": 9,
+            "eval_duration": 625693000
+          }
+        }
+      ],
+      "evidence_segment_ids": [
+        "C08:1"
+      ],
+      "decision_reason": "로컬 모델이 관련 발화의 모순·불일치 또는 불확실성을 판단했습니다."
+    },
+    {
+      "id": "C09",
+      "category": "number_correct",
+      "expected_status": "explained",
+      "actual_status": "explained",
+      "expected_missing": false,
+      "actual_missing": false,
+      "correct": true,
+      "errors": [],
+      "model_responses": [
+        {
+          "judgments": [
+            {
+              "keypoint_id": "k1",
+              "status": "explained",
+              "reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다.",
+              "evidence_segment_ids": [
+                "C09:1"
+              ]
+            }
+          ]
+        }
+      ],
+      "timings": [
+        {
+          "wall_ms": 934.5449999673292,
+          "provider_metrics": {
+            "wall_ms": 934.4029589556158,
+            "total_duration": 922585209,
+            "load_duration": 1151667,
+            "prompt_eval_count": 491,
+            "prompt_eval_duration": 304997000,
+            "eval_count": 9,
+            "eval_duration": 614354000
+          }
+        }
+      ],
+      "evidence_segment_ids": [
+        "C09:1"
+      ],
+      "decision_reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다."
+    },
+    {
+      "id": "C10",
+      "category": "spoken_number",
+      "expected_status": "explained",
+      "actual_status": "explained",
+      "expected_missing": false,
+      "actual_missing": false,
+      "correct": true,
+      "errors": [],
+      "model_responses": [
+        {
+          "judgments": [
+            {
+              "keypoint_id": "k1",
+              "status": "explained",
+              "reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다.",
+              "evidence_segment_ids": [
+                "C10:1"
+              ]
+            }
+          ]
+        }
+      ],
+      "timings": [
+        {
+          "wall_ms": 931.8878329941072,
+          "provider_metrics": {
+            "wall_ms": 931.7467079963535,
+            "total_duration": 922659250,
+            "load_duration": 1645875,
+            "prompt_eval_count": 497,
+            "prompt_eval_duration": 292731000,
+            "eval_count": 9,
+            "eval_duration": 624652000
+          }
+        }
+      ],
+      "evidence_segment_ids": [
+        "C10:1"
+      ],
+      "decision_reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다."
+    },
+    {
+      "id": "C11",
+      "category": "unrelated",
+      "expected_status": "unconfirmed",
+      "actual_status": "unconfirmed",
+      "expected_missing": false,
+      "actual_missing": false,
+      "correct": true,
+      "errors": [],
+      "model_responses": [
+        {
+          "judgments": [
+            {
+              "keypoint_id": "k1",
+              "status": "unconfirmed",
+              "reason": "로컬 모델이 핵심 항목의 설명을 아직 확인하지 못했습니다.",
+              "evidence_segment_ids": []
+            }
+          ]
+        }
+      ],
+      "timings": [
+        {
+          "wall_ms": 801.0346250375733,
+          "provider_metrics": {
+            "wall_ms": 800.9174579638056,
+            "total_duration": 788725667,
+            "load_duration": 1954250,
+            "prompt_eval_count": 488,
+            "prompt_eval_duration": 315180000,
+            "eval_count": 7,
+            "eval_duration": 467023000
+          }
+        }
+      ],
+      "evidence_segment_ids": [],
+      "decision_reason": "로컬 모델이 핵심 항목의 설명을 아직 확인하지 못했습니다."
+    },
+    {
+      "id": "C12",
+      "category": "not_yet_mentioned",
+      "expected_status": "unconfirmed",
+      "actual_status": "unconfirmed",
+      "expected_missing": false,
+      "actual_missing": false,
+      "correct": true,
+      "errors": [],
+      "model_responses": [
+        {
+          "judgments": [
+            {
+              "keypoint_id": "k1",
+              "status": "unconfirmed",
+              "reason": "로컬 모델이 핵심 항목의 설명을 아직 확인하지 못했습니다.",
+              "evidence_segment_ids": []
+            }
+          ]
+        }
+      ],
+      "timings": [
+        {
+          "wall_ms": 771.6808749828488,
+          "provider_metrics": {
+            "wall_ms": 771.5043749776669,
+            "total_duration": 759363541,
+            "load_duration": 797041,
+            "prompt_eval_count": 486,
+            "prompt_eval_duration": 276781000,
+            "eval_count": 7,
+            "eval_duration": 478064000
+          }
+        }
+      ],
+      "evidence_segment_ids": [],
+      "decision_reason": "로컬 모델이 핵심 항목의 설명을 아직 확인하지 못했습니다."
+    },
+    {
+      "id": "C13",
+      "category": "missing_on_transition",
+      "expected_status": "unconfirmed",
+      "actual_status": "unconfirmed",
+      "expected_missing": true,
+      "actual_missing": true,
+      "correct": true,
+      "errors": [],
+      "model_responses": [
+        {
+          "judgments": [
+            {
+              "keypoint_id": "k1",
+              "status": "unconfirmed",
+              "reason": "로컬 모델이 핵심 항목의 설명을 아직 확인하지 못했습니다.",
+              "evidence_segment_ids": []
+            }
+          ]
+        }
+      ],
+      "timings": [
+        {
+          "wall_ms": 773.6604590318166,
+          "provider_metrics": {
+            "wall_ms": 773.5317089827731,
+            "total_duration": 761851791,
+            "load_duration": 1080833,
+            "prompt_eval_count": 495,
+            "prompt_eval_duration": 292581000,
+            "eval_count": 7,
+            "eval_duration": 465272000
+          }
+        }
+      ],
+      "evidence_segment_ids": [],
+      "decision_reason": "로컬 모델이 핵심 항목의 설명을 아직 확인하지 못했습니다."
+    },
+    {
+      "id": "C14",
+      "category": "incomplete",
+      "expected_status": "unconfirmed",
+      "actual_status": "unconfirmed",
+      "expected_missing": false,
+      "actual_missing": false,
+      "correct": true,
+      "errors": [],
+      "model_responses": [],
+      "timings": [],
+      "evidence_segment_ids": [],
+      "decision_reason": "아직 확인되지 않았습니다."
+    },
+    {
+      "id": "C15",
+      "category": "continuation",
+      "expected_status": "explained",
+      "actual_status": "explained",
+      "expected_missing": false,
+      "actual_missing": false,
+      "correct": true,
+      "errors": [],
+      "model_responses": [
+        {
+          "judgments": [
+            {
+              "keypoint_id": "k1",
+              "status": "explained",
+              "reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다.",
+              "evidence_segment_ids": [
+                "C15:1",
+                "C15:2"
+              ]
+            }
+          ]
+        }
+      ],
+      "timings": [
+        {
+          "wall_ms": 1107.409457967151,
+          "provider_metrics": {
+            "wall_ms": 1107.288500003051,
+            "total_duration": 1096608833,
+            "load_duration": 2565750,
+            "prompt_eval_count": 496,
+            "prompt_eval_duration": 306343000,
+            "eval_count": 11,
+            "eval_duration": 783439000
+          }
+        }
+      ],
+      "evidence_segment_ids": [
+        "C15:1",
+        "C15:2"
+      ],
+      "decision_reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다."
+    },
+    {
+      "id": "C16",
+      "category": "correction",
+      "expected_status": "explained",
+      "actual_status": "explained",
+      "expected_missing": false,
+      "actual_missing": false,
+      "correct": true,
+      "errors": [],
+      "model_responses": [
+        {
+          "judgments": [
+            {
+              "keypoint_id": "k1",
+              "status": "uncertain",
+              "reason": "로컬 모델이 관련 발화의 모순·불일치 또는 불확실성을 판단했습니다.",
+              "evidence_segment_ids": [
+                "C16:1"
+              ]
+            }
+          ]
+        },
+        {
+          "judgments": [
+            {
+              "keypoint_id": "k1",
+              "status": "explained",
+              "reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다.",
+              "evidence_segment_ids": [
+                "C16:2"
+              ]
+            }
+          ]
+        }
+      ],
+      "timings": [
+        {
+          "wall_ms": 952.7322910143994,
+          "provider_metrics": {
+            "wall_ms": 952.5603330112062,
+            "total_duration": 941220375,
+            "load_duration": 2816834,
+            "prompt_eval_count": 491,
+            "prompt_eval_duration": 307269000,
+            "eval_count": 9,
+            "eval_duration": 627283000
+          }
+        },
+        {
+          "wall_ms": 948.3623339910991,
+          "provider_metrics": {
+            "wall_ms": 948.1232080142945,
+            "total_duration": 937429666,
+            "load_duration": 887708,
+            "prompt_eval_count": 527,
+            "prompt_eval_duration": 298314000,
+            "eval_count": 9,
+            "eval_duration": 635243000
+          }
+        }
+      ],
+      "evidence_segment_ids": [
+        "C16:2"
+      ],
+      "decision_reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다."
+    },
+    {
+      "id": "C17",
+      "category": "retraction",
+      "expected_status": "uncertain",
+      "actual_status": "uncertain",
+      "expected_missing": false,
+      "actual_missing": false,
+      "correct": true,
+      "errors": [],
+      "model_responses": [
+        {
+          "judgments": [
+            {
+              "keypoint_id": "k1",
+              "status": "explained",
+              "reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다.",
+              "evidence_segment_ids": [
+                "C17:1"
+              ]
+            }
+          ]
+        },
+        {
+          "judgments": [
+            {
+              "keypoint_id": "k1",
+              "status": "uncertain",
+              "reason": "로컬 모델이 관련 발화의 모순·불일치 또는 불확실성을 판단했습니다.",
+              "evidence_segment_ids": [
+                "C17:2"
+              ]
+            }
+          ]
+        }
+      ],
+      "timings": [
+        {
+          "wall_ms": 969.8319169692695,
+          "provider_metrics": {
+            "wall_ms": 969.722791982349,
+            "total_duration": 957874917,
+            "load_duration": 1289167,
+            "prompt_eval_count": 483,
+            "prompt_eval_duration": 306564000,
+            "eval_count": 9,
+            "eval_duration": 643143000
+          }
+        },
+        {
+          "wall_ms": 940.3738330001943,
+          "provider_metrics": {
+            "wall_ms": 940.2882080175914,
+            "total_duration": 930921000,
+            "load_duration": 857458,
+            "prompt_eval_count": 519,
+            "prompt_eval_duration": 293318000,
+            "eval_count": 9,
+            "eval_duration": 634271000
+          }
+        }
+      ],
+      "evidence_segment_ids": [
+        "C17:2"
+      ],
+      "decision_reason": "로컬 모델이 관련 발화의 모순·불일치 또는 불확실성을 판단했습니다."
+    },
+    {
+      "id": "C18",
+      "category": "stt_uncertainty",
+      "expected_status": "uncertain",
+      "actual_status": "uncertain",
+      "expected_missing": false,
+      "actual_missing": false,
+      "correct": true,
+      "errors": [],
+      "model_responses": [],
+      "timings": [],
+      "evidence_segment_ids": [
+        "C18:1"
+      ],
+      "decision_reason": "전환 경계 또는 불확실한 전사입니다."
+    },
+    {
+      "id": "C19",
+      "category": "instruction_in_utterance",
+      "expected_status": "unconfirmed",
+      "actual_status": "unconfirmed",
+      "expected_missing": false,
+      "actual_missing": false,
+      "correct": true,
+      "errors": [],
+      "model_responses": [
+        {
+          "judgments": [
+            {
+              "keypoint_id": "k1",
+              "status": "unconfirmed",
+              "reason": "로컬 모델이 핵심 항목의 설명을 아직 확인하지 못했습니다.",
+              "evidence_segment_ids": []
+            }
+          ]
+        }
+      ],
+      "timings": [
+        {
+          "wall_ms": 800.5719159846194,
+          "provider_metrics": {
+            "wall_ms": 800.460375030525,
+            "total_duration": 781080792,
+            "load_duration": 1309792,
+            "prompt_eval_count": 506,
+            "prompt_eval_duration": 309738000,
+            "eval_count": 7,
+            "eval_duration": 467061000
+          }
+        }
+      ],
+      "evidence_segment_ids": [],
+      "decision_reason": "로컬 모델이 핵심 항목의 설명을 아직 확인하지 못했습니다."
+    },
+    {
+      "id": "C20",
+      "category": "unit_error",
+      "expected_status": "uncertain",
+      "actual_status": "uncertain",
+      "expected_missing": false,
+      "actual_missing": false,
+      "correct": true,
+      "errors": [],
+      "model_responses": [
+        {
+          "judgments": [
+            {
+              "keypoint_id": "k1",
+              "status": "uncertain",
+              "reason": "로컬 모델이 관련 발화의 모순·불일치 또는 불확실성을 판단했습니다.",
+              "evidence_segment_ids": [
+                "C20:1"
+              ]
+            }
+          ]
+        }
+      ],
+      "timings": [
+        {
+          "wall_ms": 954.3265419779345,
+          "provider_metrics": {
+            "wall_ms": 953.9302500197664,
+            "total_duration": 939987208,
+            "load_duration": 1344166,
+            "prompt_eval_count": 483,
+            "prompt_eval_duration": 303862000,
+            "eval_count": 9,
+            "eval_duration": 631979000
+          }
+        }
+      ],
+      "evidence_segment_ids": [
+        "C20:1"
+      ],
+      "decision_reason": "로컬 모델이 관련 발화의 모순·불일치 또는 불확실성을 판단했습니다."
+    }
+  ],
+  "warm_up": {
+    "requested": true,
+    "metrics": {
+      "wall_ms": 2523.238624969963,
+      "total_duration": 2516688416,
+      "load_duration": 13742583,
+      "prompt_eval_count": 464,
+      "prompt_eval_duration": 1786064000,
+      "eval_count": 9,
+      "eval_duration": 638204000
+    },
+    "excluded_from_case_latency": true
+  },
+  "timestamp_utc": "2026-10-04T06:36:19.683580+00:00",
+  "dataset_path": "/Users/jwlee/study1/byyourside/examples/coaching_eval.json",
+  "git_revision": "8dc4ad3",
+  "git_dirty": true,
+  "source_sha256": {
+    "src/ollama_coach.py": "f77f3b1d59ea74dc01f39fc821c252113ad1ecfbe1056ffa749e083e718929f4",
+    "src/coaching_eval.py": "27f4f89f4bafae4e8e2c008dd243b54fa7fe11a2c14c97a56bfe89912e220d3e",
+    "examples/coaching_eval.json": "39d4b31388cb92c5db6bbc19b64687604a149315494665e1b5be298c4312ff62"
+  },
+  "source_hash_note": "Hashes recorded after adding context-limit guard; measured semantic prompt/output format unchanged. Guard verified separately."
+}

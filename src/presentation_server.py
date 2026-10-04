@@ -44,6 +44,11 @@ class PresentationApp:
             if self.session and self.session.status != "ended":
                 raise ValueError("이미 진행 중인 발표가 있습니다.")
             self.session = Session(self.deck)
+            self.session._event("coach_configured", provider=self.coach.name,
+                                model=getattr(self.coach, "model", None),
+                                model_info=getattr(self.coach, "model_info", None),
+                                warm_up_metrics=getattr(self.coach, "warm_up_metrics", None),
+                                timeout_sec=getattr(self.coach, "timeout", None))
             self.output_path = self.session.save(self.output_dir)
             self.audio_stop.clear()
             self.audio_done = not microphone
@@ -110,9 +115,14 @@ class PresentationApp:
                 with self.lock:
                     stale = session.revisions.get(job["version"], {}).get("revision") != job["revision"]
                 if not stale:
+                    began = time.perf_counter()
                     response = self.coach.evaluate(job)
                     with self.lock:
                         session.apply(job, response)
+                        session._event("coaching_inference", provider=self.coach.name,
+                                       version=job["version"], revision=job["revision"],
+                                       wall_ms=(time.perf_counter() - began) * 1000,
+                                       metrics=getattr(self.coach, "last_metrics", {}))
             except Exception as exc:
                 with self.lock:
                     session.fail_job(job, f"내용 판단 오류: {exc}")

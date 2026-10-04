@@ -70,6 +70,8 @@ utterance는 선택적으로 segment_id, start_sec, end_sec, status를 받는다
 
 주요 이벤트 유형: session_started, slide_changed, utterance, judgment_deferred, keypoint_judged, coaching_action, slide_review, alert_shown, alert_suppressed, alert_retracted, quality_issue, audio_started, audio_summary, capture_snapshot, session_stopping, session_ended.
 
+로컬 의미 모델 연결 시 coach_configured는 provider, model, 모델 digest·크기·양자화 정보, warm_up_metrics, 요청 제한 시간을 보존한다. coaching_inference는 요청 version/revision, wall_ms 및 모델별 추론 계측을 보존한다. 이 wall_ms는 음성 종료부터 화면까지의 전체 지연이 아니다.
+
 coaching_action은 정상 또는 미언급 상태에서 NO_ACTION, 불확실한 의미 판단에서 UNCERTAIN을 기록한다. slide_review의 missing_candidates는 확인이 필요한 후보이며 확정 누락 판정이 아니다.
 
 ## 시간·연결·오류 규칙
