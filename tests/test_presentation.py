@@ -143,6 +143,31 @@ class PresentationTests(unittest.TestCase):
         self.session.finish()
         self.assertEqual(self.session.states["p2"]["status"], "uncertain")
 
+    def test_previous_visit_result_and_failure_cannot_overwrite_revisited_slide(self):
+        old = self.feed("기기에서 음성을 인식합니다")
+        old_response = self.coach.evaluate(old)
+        self.clock.advance(1)
+        self.session.navigate(1)
+        self.clock.advance(1)
+        self.session.navigate(0)
+        start = self.session.elapsed() + .1
+        new = self.feed("기기에서 음성을 인식합니다라는 설명은 사실이 아닙니다", start, start + 1, "new")
+        self.session.apply(new, self.coach.evaluate(new))
+        self.assertEqual(self.session.states["p1"]["status"], "uncertain")
+        before = copy.deepcopy(self.session.states)
+        self.session.apply(old, old_response)
+        self.session.fail_job(old, "late timeout")
+        self.assertEqual(self.session.states, before)
+        self.assertFalse(self.session.revisions[old["version"]]["pending"])
+        self.assertTrue(self.session.job_is_current(new))
+
+    def test_late_result_for_other_slide_is_still_allowed_without_revisit(self):
+        old = self.feed("기기에서 음성을 인식합니다")
+        self.clock.advance(1)
+        self.session.navigate(1)
+        self.session.apply(old, self.coach.evaluate(old))
+        self.assertEqual(self.session.states["p1"]["status"], "explained")
+
     def test_stale_job_and_invalid_output_cannot_mutate_state(self):
         first = self.feed("기기에서 음성을 인식합니다")
         second = self.feed("다음 설명입니다", 3, 4, "two")

@@ -89,3 +89,5 @@ coaching_action은 정상 또는 미언급 상태에서 NO_ACTION, 불확실한 
 현재 종료 파일 저장과 JSON 내보내기까지 제공한다. 사용자용 결과 요약, 슬라이드별 결과 화면, 개선 제안 생성, 전사 수정, 리허설 비교는 발표 후 작업에서 구현한다.
 
 coaching_inference의 outcome=response_validated는 응답 검증 경로, outcome=error는 실패 경로다. 실패에도 error_type과 wall_ms를 기록한다. 응답 검증 이벤트 자체는 현재 화면 반영을 보장하지 않으며 revision 검증에 따른 judgment_discarded와 함께 해석한다. 현재 요청 실패 시 과거 설명됨도 판단불가로 전환하고, 오래된 요청·다른 세션·종료 이후의 실패는 상태를 바꾸지 않는다.
+
+요청 유효성은 session_id, 종료 상태, 방문별 revision과 해당 슬라이드의 가장 최근 방문 version을 함께 확인한다. 재방문 이전 요청은 추론 전 및 결과 적용 시점에 버린다. 같은 슬라이드를 다시 방문하지 않았다면 이전 슬라이드의 늦은 결과를 기록할 수 있다.

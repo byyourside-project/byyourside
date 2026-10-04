@@ -117,6 +117,24 @@ class PresentationServerTests(unittest.TestCase):
         self.assertTrue(pipelines[0].closed)
         self.assertTrue(any(e["type"] == "audio_summary" for e in self.app.session.events))
 
+    def test_queued_job_from_previous_visit_skips_model_inference(self):
+        calls = []
+        class RecordingCoach:
+            name = "recording"
+            def evaluate(self, job):
+                calls.append(job)
+                raise AssertionError("obsolete job should never run")
+        self.app.coach = RecordingCoach()
+        self.app.start()
+        with self.app.lock:
+            self.app.command("utterance", {"text": "기기에서 음성을 인식합니다"})
+            self.app.command("navigate", {"index": 1})
+            self.app.command("navigate", {"index": 0})
+        wait_for(lambda: self.app.jobs.unfinished_tasks == 0)
+        self.assertFalse(calls)
+        self.assertFalse(self.app.session.revisions[1]["pending"])
+        self.assertTrue(any(e["type"] == "judgment_discarded" for e in self.app.session.events))
+
     def test_model_failure_is_uncertain_and_does_not_stop_timer(self):
         class BrokenCoach:
             name = "test"

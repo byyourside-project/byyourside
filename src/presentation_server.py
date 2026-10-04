@@ -114,7 +114,9 @@ class PresentationApp:
             began = None
             try:
                 with self.lock:
-                    stale = session.revisions.get(job["version"], {}).get("revision") != job["revision"]
+                    stale = not session.job_is_current(job)
+                    if stale:
+                        session.discard_job(job)
                 if not stale:
                     began = time.perf_counter()
                     response = self.coach.evaluate(job)

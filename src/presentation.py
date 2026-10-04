@@ -292,10 +292,21 @@ class Session:
                 "slide": next(s for s in self.deck["slides"] if s["slide_id"] == visit["slide_id"]),
                 "segments": copy.deepcopy(context)}
 
+    def job_is_current(self, job):
+        latest_visit = next((v for v in reversed(self.visits) if v["slide_id"] == job["slide"]["slide_id"]), None)
+        return (job["session_id"] == self.session_id and self.status != "ended" and
+                self.revisions.get(job["version"], {}).get("revision") == job["revision"] and
+                latest_visit is not None and latest_visit["version"] == job["version"])
+
+    def discard_job(self, job):
+        if job["session_id"] == self.session_id and self.revisions.get(job["version"], {}).get("revision") == job["revision"]:
+            self.revisions[job["version"]]["pending"] = False
+        self._event("judgment_discarded", reason="stale_request", version=job["version"], revision=job["revision"])
+
     def apply(self, job, response):
         version = job["version"]
-        if job["session_id"] != self.session_id or self.status == "ended" or self.revisions.get(version, {}).get("revision") != job["revision"]:
-            self._event("judgment_discarded", reason="stale_request")
+        if not self.job_is_current(job):
+            self.discard_job(job)
             return
         valid_ids = {p["keypoint_id"] for p in job["slide"]["keypoints"]}
         evidence_ids = {s["segment_id"] for s in job["segments"]}
@@ -334,7 +345,8 @@ class Session:
         self._event("coaching_action", action="UNCERTAIN" if any(j["status"] == "uncertain" for j in judgments) else "NO_ACTION", version=version)
 
     def fail_job(self, job, message):
-        if job["session_id"] != self.session_id or self.status == "ended" or self.revisions.get(job["version"], {}).get("revision") != job["revision"]:
+        if not self.job_is_current(job):
+            self.discard_job(job)
             return
         self.revisions[job["version"]]["pending"] = False
         for p in job["slide"]["keypoints"]:
