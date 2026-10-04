@@ -831,6 +831,23 @@ class SpeechPipeline:
 
 
 
+    def _transcribe_live_segment(self, seg, logger, abort_event, timeout, recover):
+        """Live-only retry on the same retained samples; benchmark policy stays fail-fast."""
+        try:
+            text, infer_ms = self._call_stt_transcribe(seg.samples, 16000, abort_event=abort_event, timeout=timeout)
+            return text, infer_ms, "OK"
+        except TimeoutError as exc:
+            if not recover or abort_event.is_set():
+                raise
+            logger.log_event("stt_recovery", {"stage": "retry", "segment_id": seg.segment_id, "error": str(exc)})
+            try:
+                text, infer_ms = self._call_stt_transcribe(seg.samples, 16000, abort_event=abort_event, timeout=timeout)
+                logger.log_event("stt_recovery", {"stage": "resumed", "segment_id": seg.segment_id})
+                return text, infer_ms, "OK"
+            except TimeoutError as retry_exc:
+                logger.log_event("stt_recovery", {"stage": "failed_segment", "segment_id": seg.segment_id, "error": str(retry_exc)})
+                return "", 0.0, "ERROR"
+
     def run_mic(
         self,
         duration_seconds: float = 10.0,
@@ -838,7 +855,8 @@ class SpeechPipeline:
         snapshot_interval_sec: float = 60.0,
         request_timeout: Optional[float] = None,
         stream_factory: Optional[Any] = None,
-        stop_event: Optional[Any] = None
+        stop_event: Optional[Any] = None,
+        recover_stt_timeouts: bool = False
     ) -> PipelineResult:
         """
         Live microphone recording and real-time STT pipeline.
@@ -874,6 +892,7 @@ class SpeechPipeline:
             "target_sample_rate": out_rate,
             "resample_ratio": f"{up}/{down}",
             "request_timeout_sec": effective_req_timeout,
+            "recover_stt_timeouts": recover_stt_timeouts,
             "git_revision": get_git_revision(),
             "clock_origin_perf_counter": stream_start_wall_ts,
             "clock_origin_time": clock_origin_time,
@@ -1037,7 +1056,8 @@ class SpeechPipeline:
 
         # Worker 2: STT worker
         def stt_worker():
-            nonlocal stt_exception, total_infer_sec, total_speech_sec
+            nonlocal stt_exception, total_infer_sec, total_speech_sec, dropped_segments_count
+            consecutive_failures = 0
             try:
                 while not abort_event.is_set():
                     try:
@@ -1059,12 +1079,14 @@ class SpeechPipeline:
                         segment_queue.task_done()
                         break
 
-                    text, infer_ms = self._call_stt_transcribe(
-                        seg.samples,
-                        16000,
-                        abort_event=abort_event,
-                        timeout=effective_req_timeout
-                    )
+                    text, infer_ms, result_status = self._transcribe_live_segment(
+                        seg, logger, abort_event, effective_req_timeout, recover_stt_timeouts)
+                    consecutive_failures = consecutive_failures + 1 if result_status == "ERROR" else 0
+                    if result_status == "ERROR":
+                        dropped_segments_count += 1
+                        dropped_items.append(DroppedItem(item_type="segment", item_id=seg.segment_id,
+                            stream_sample_start=seg.start_sample, stream_sample_end=seg.end_sample,
+                            duration_ms=seg.duration_ms, reason="stt_timeout_after_retry", drop_ts=time.perf_counter()))
 
                     if abort_event.is_set():
                         segment_queue.task_done()
@@ -1106,7 +1128,7 @@ class SpeechPipeline:
                         rtf=rtf,
                         delay_after_speech_ms=delay_after_speech_ms,
                         total_latency_ms=latency_from_start_ms,
-                        text=text
+                        text=text, error_or_dropped_status=result_status
                     )
 
                     segment_results.append({
@@ -1120,9 +1142,11 @@ class SpeechPipeline:
                         "delay_after_speech_ms": delay_after_speech_ms,
                         "continuous_latency_ms": latency_from_start_ms,
                         "infer_ms": infer_ms,
-                        "endpoint_reason": seg.endpoint_reason
+                        "endpoint_reason": seg.endpoint_reason, "status": result_status
                     })
                     segment_queue.task_done()
+                    if consecutive_failures >= 3:
+                        raise TimeoutError("STT failed for three consecutive segments after bounded retries")
             except Exception as e:
                 stt_exception = e
                 abort_event.set()

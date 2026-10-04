@@ -298,7 +298,14 @@ class Session:
     def _pending_job(self, version):
         parts = self.pending.pop(version)
         # Include recent context within this visit, never across slide boundaries.
-        context = [s for s in self.segments if s.get("visit_version") == version][-8:] + parts
+        candidates = [s for s in self.segments if s.get("visit_version") == version] + parts
+        newest_end = parts[-1]["end_sec"]
+        context = [s for s in candidates if s["end_sec"] >= newest_end - 45][-12:]
+        while len(context) > 1 and sum(len(s["text"]) for s in context) > 2400:
+            context.pop(0)
+        omitted = [s["segment_id"] for s in candidates if s not in context]
+        if omitted:
+            self._event("context_trimmed", version=version, omitted_segment_ids=omitted)
         for part in parts:
             part["visit_version"] = version
         revision = self.revisions.get(version, {}).get("revision", 0) + 1

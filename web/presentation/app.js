@@ -39,7 +39,7 @@ function render(data) {
 
   $('connection').textContent = '로컬 연결됨';
   $('connection-dot').style.background = '#5b9470';
-  $('audio-status').textContent = ({idle:'준비',manual:'전사 입력 모드',loading:'모델 준비 중',recording:'● 마이크 사용 중',stopped:'음성 입력 종료',error:'음성 입력 오류'})[data.audio_status] || data.audio_status;
+  $('audio-status').textContent = ({idle:'준비',manual:'전사 입력 모드',loading:'모델 준비 중',recording:'● 마이크 사용 중',recovering:'● 음성 입력 유지 · STT 복구 중',stopped:'음성 입력 종료',error:'음성 입력 오류'})[data.audio_status] || data.audio_status;
   $('session-status').textContent = !s ? '발표 준비' : ({running:'발표 진행 중',stopping:'마지막 발화 처리 중',ended:'발표 종료'})[s.status];
   $('start').disabled = s && s.status !== 'ended';
   $('stop').disabled = !running;
@@ -88,9 +88,9 @@ function render(data) {
   $('transcripts').replaceChildren(...(segments.length ? segments.map(segment => {
     const e = node('div',undefined,'utterance'); e.append(node('small',`${seconds(segment.start_sec)}–${seconds(segment.end_sec)} · ${segment.slide_ids.map(id => deck.slides.find(x=>x.slide_id===id)?.title || id).join(' / ')} · ${segment.endpoint_reason}`),node('p',segment.text)); return e;
   }) : [node('div','확정된 발화가 여기에 표시됩니다.','empty')]));
-  const manual = running && !['loading','recording'].includes(data.audio_status);
+  const manual = running && !['loading','recording','recovering'].includes(data.audio_status);
   $('utterance').disabled = !manual; $('submit').disabled = !manual; $('endpoint').disabled = !manual;
-  $('utterance-form').hidden = ['loading','recording'].includes(data.audio_status);
+  $('utterance-form').hidden = ['loading','recording','recovering'].includes(data.audio_status);
   $('issues').replaceChildren(...(s?.issues.length ? s.issues.map(issue => node('p',issue,'issue')) : [node('p',s ? `이벤트 ${s.event_count}개 기록 · ${s.status === 'ended' ? '종료 결과 저장됨' : '자동 저장 중'}` : '발표를 시작하면 기록합니다.','muted')]));
   $('save-path').textContent = data.output_path || '';
 }

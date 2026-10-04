@@ -103,7 +103,10 @@ class PresentationApp:
         try:
             if self.pipeline_factory is None:
                 from src.pipeline import SpeechPipeline
-                pipeline = SpeechPipeline(event_sink=self._enqueue_audio, terminal_output=False)
+                from src.config import PipelineConfig
+                config = PipelineConfig()
+                config.vad.min_silence_duration = .3
+                pipeline = SpeechPipeline(config, event_sink=self._enqueue_audio, terminal_output=False)
             else:
                 pipeline = self.pipeline_factory(self._enqueue_audio)
             pipeline.stt.warm_up(.5)
@@ -111,7 +114,7 @@ class PresentationApp:
                 with self.lock:
                     self.audio_status = "recording"
                 pipeline.run_mic(duration_seconds=7200, run_id=f"presentation_{session.session_id}",
-                                 stop_event=self.audio_stop, snapshot_interval_sec=10)
+                                 stop_event=self.audio_stop, snapshot_interval_sec=10, recover_stt_timeouts=True)
         except Exception as exc:
             # Failures remain visible and are persisted even if initialization fails.
             with self.lock:
@@ -179,6 +182,8 @@ class PresentationApp:
             self.audio_origin = event["clock_origin_perf_counter"] - session.origin
             session._event("audio_started", offset_sec=self.audio_origin, run_id=event["run_id"])
         elif kind == "segment_result":
+            if self.audio_status == "recovering" and event.get("status", "OK") == "OK":
+                self.audio_status = "recording"
             self._schedule(session, session.ingest({
                 "segment_id": f"{event['run_id']}:{event['segment_id']}", "text": event["text"],
                 "start_sec": self.audio_origin + event["audio_start_ms"] / 1000,
@@ -188,6 +193,11 @@ class PresentationApp:
                 "estimated_feedback_delay_ms": event["delay_after_speech_ms"]}))
             for job in session.finalize_pending_through(self.audio_endpoint_sec):
                 self._schedule(session, job)
+            if event.get("status") == "ERROR":
+                session.issue("STT 재시도 후에도 전사하지 못한 구간이 있습니다. 음성 입력은 유지합니다.")
+        elif kind == "stt_recovery":
+            session._event("stt_recovery", **{k:v for k,v in event.items() if k not in ("event_type", "run_id")})
+            self.audio_status = "recording" if event["stage"] == "resumed" else "recovering"
         elif kind == "speech_endpoint":
             self.audio_endpoint_sec = max(self.audio_endpoint_sec, self.audio_origin + event["audio_end_ms"] / 1000)
             for job in session.finalize_pending_through(self.audio_endpoint_sec):
@@ -274,7 +284,7 @@ class PresentationApp:
                         alert["expires_sec"] = self.session.elapsed()
                     self.audio_stop.set()
                 else:
-                    if self.audio_status in ("loading", "recording"):
+                    if self.audio_status in ("loading", "recording", "recovering"):
                         raise ValueError("마이크 모드에서는 직접 전사를 입력할 수 없습니다.")
                     now = self.session.elapsed()
                     self._schedule(self.session, self.session.ingest({
