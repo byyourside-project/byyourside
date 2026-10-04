@@ -41,6 +41,25 @@ class PresentationServerTests(unittest.TestCase):
         payload = None if body is None else json.dumps(body).encode()
         return urlopen(Request(self.url + route, data=payload, headers={"Content-Type": "application/json", **(headers or {})}), timeout=3)
 
+    def test_silence_endpoint_finishes_cut_even_when_endpoint_precedes_stt_result(self):
+        for endpoint_first in (False, True):
+            self.app.start()
+            with self.app.lock:
+                self.app.session.origin -= 5
+                endpoint = {"event_type": "speech_endpoint", "audio_end_ms": 4000}
+                if endpoint_first:
+                    self.app._process_audio(endpoint)
+                self.app._process_audio({"event_type": "segment_result", "run_id": "fixture", "segment_id": 1,
+                                        "text": "기기에서 음성을 인식합니다", "audio_start_ms": 1000,
+                                        "audio_end_ms": 3000, "endpoint_reason": "soft_max_duration",
+                                        "stt_inference_ms": 10, "delay_after_speech_ms": 100})
+                if not endpoint_first:
+                    self.assertTrue(self.app.session.pending)
+                    self.app._process_audio(endpoint)
+            wait_for(lambda: self.app.state()["session"]["states"]["p1"]["status"] == "explained")
+            self.app.command("stop", {})
+            wait_for(lambda: self.app.state()["session"]["status"] == "ended")
+
     def test_http_end_to_end_manual_flow_and_saved_event_contract(self):
         with self.request("/") as response:
             self.assertIn("발표 시작", response.read().decode())

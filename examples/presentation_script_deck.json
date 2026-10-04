@@ -1,0 +1,102 @@
+{
+  "deck_id": "user-script",
+  "version": 2,
+  "title": "발표 코파일럿 · 대본 예제",
+  "total_duration_sec": 90.0,
+  "script_text": "발표자의 시간과 핵심 내용 설명을 돕습니다.\n음성 인식은 로컬에서 실행합니다.\n발화를 최대 4초 구간으로 분할합니다.\n불확실한 내용은 판단을 보류합니다.\n실제 발표 음성으로 정확도와 지연을 검증합니다.\n보드 성능은 별도로 측정합니다.",
+  "slides": [
+    {
+      "slide_id": "script",
+      "title": "발표 코파일럿 · 대본 예제",
+      "target_duration_sec": 90.0,
+      "keypoints": [
+        {
+          "keypoint_id": "script-1",
+          "text": "발표자의 시간과 핵심 내용 설명을 돕습니다.",
+          "required": true,
+          "aliases": []
+        },
+        {
+          "keypoint_id": "script-2",
+          "text": "음성 인식은 로컬에서 실행합니다.",
+          "required": true,
+          "aliases": []
+        },
+        {
+          "keypoint_id": "script-3",
+          "text": "발화를 최대 4초 구간으로 분할합니다.",
+          "required": true,
+          "aliases": []
+        },
+        {
+          "keypoint_id": "script-4",
+          "text": "불확실한 내용은 판단을 보류합니다.",
+          "required": true,
+          "aliases": []
+        },
+        {
+          "keypoint_id": "script-5",
+          "text": "실제 발표 음성으로 정확도와 지연을 검증합니다.",
+          "required": true,
+          "aliases": []
+        },
+        {
+          "keypoint_id": "script-6",
+          "text": "보드 성능은 별도로 측정합니다.",
+          "required": true,
+          "aliases": []
+        }
+      ]
+    }
+  ],
+  "script_plan": {
+    "version": 1,
+    "unit": "공백·문장부호 제외 글자",
+    "total_units": 96,
+    "baseline_units_per_min": 64.0,
+    "units": [
+      {
+        "keypoint_id": "script-1",
+        "text": "발표자의 시간과 핵심 내용 설명을 돕습니다.",
+        "units": 18,
+        "planned_start_sec": 0,
+        "planned_end_sec": 16.875
+      },
+      {
+        "keypoint_id": "script-2",
+        "text": "음성 인식은 로컬에서 실행합니다.",
+        "units": 14,
+        "planned_start_sec": 16.875,
+        "planned_end_sec": 30.0
+      },
+      {
+        "keypoint_id": "script-3",
+        "text": "발화를 최대 4초 구간으로 분할합니다.",
+        "units": 16,
+        "planned_start_sec": 30.0,
+        "planned_end_sec": 45.0
+      },
+      {
+        "keypoint_id": "script-4",
+        "text": "불확실한 내용은 판단을 보류합니다.",
+        "units": 15,
+        "planned_start_sec": 45.0,
+        "planned_end_sec": 59.0625
+      },
+      {
+        "keypoint_id": "script-5",
+        "text": "실제 발표 음성으로 정확도와 지연을 검증합니다.",
+        "units": 20,
+        "planned_start_sec": 59.0625,
+        "planned_end_sec": 77.8125
+      },
+      {
+        "keypoint_id": "script-6",
+        "text": "보드 성능은 별도로 측정합니다.",
+        "units": 13,
+        "planned_start_sec": 77.8125,
+        "planned_end_sec": 90.0
+      }
+    ]
+  }
+}

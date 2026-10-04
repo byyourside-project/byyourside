@@ -268,6 +268,9 @@ class Session:
         item["slide_ids"] = list(dict.fromkeys(v["slide_id"] for v in visits))
         self.segments.append(item)
         self._event("utterance", **item)
+        if not normalized(item["text"]) and item.get("status", "OK") == "OK":
+            self._event("judgment_deferred", segment_id=sid, reason="empty_transcript")
+            return None
         if len(visits) != 1 or item.get("status", "OK") != "OK" or not normalized(item["text"]):
             for v in visits:
                 for p in next(s for s in self.deck["slides"] if s["slide_id"] == v["slide_id"])["keypoints"]:
@@ -281,6 +284,18 @@ class Session:
         if item.get("endpoint_reason", "silence") in ("hard_max_duration", "hard_cut_continuation", "soft_max_duration"):
             self._event("judgment_deferred", segment_id=sid, reason="incomplete_utterance")
             return None
+        return self._pending_job(version)
+
+    def finalize_pending_through(self, end_sec):
+        """Complete cut fragments only after the audio detector confirms silence."""
+        jobs = []
+        for version, parts in list(self.pending.items()):
+            if parts and parts[-1]["end_sec"] <= end_sec:
+                self._event("utterance_completed", version=version, reason="detector_silence")
+                jobs.append(self._pending_job(version))
+        return jobs
+
+    def _pending_job(self, version):
         parts = self.pending.pop(version)
         # Include recent context within this visit, never across slide boundaries.
         context = [s for s in self.segments if s.get("visit_version") == version][-8:] + parts
@@ -288,8 +303,9 @@ class Session:
             part["visit_version"] = version
         revision = self.revisions.get(version, {}).get("revision", 0) + 1
         self.revisions[version] = {"revision": revision, "pending": True}
+        slide_id = next(v["slide_id"] for v in self.visits if v["version"] == version)
         return {"session_id": self.session_id, "version": version, "revision": revision,
-                "slide": next(s for s in self.deck["slides"] if s["slide_id"] == visit["slide_id"]),
+                "slide": next(s for s in self.deck["slides"] if s["slide_id"] == slide_id),
                 "segments": copy.deepcopy(context)}
 
     def job_is_current(self, job):
@@ -362,6 +378,8 @@ class Session:
                               "index": self.index, "version": self.version, "elapsed_sec": elapsed,
                               "remaining_sec": self.deck["total_duration_sec"] - elapsed,
                               "slide_elapsed_sec": elapsed - self.visits[-1]["start_sec"],
+                              "judgment_status": "waiting_for_silence" if self.pending.get(self.version) else
+                                                 "evaluating" if self.revisions.get(self.version, {}).get("pending") else "ready",
                               "states": self.states, "visits": self.visits, "segments": self.segments[-30:],
                               "alerts": sorted([a for a in self.alerts if a["expires_sec"] > display_now and
                                                 (a["version"] is None or a["version"] == self.version)], key=lambda a: -a["priority"]),
@@ -375,6 +393,6 @@ class Session:
         temp.write_text(json.dumps({**self.snapshot(), "segments": self.segments, "events": self.events,
                                     "alerts": self.alerts,
                                     "active_alerts": self.snapshot()["alerts"],
-                                    "schema_version": 1}, ensure_ascii=False, indent=2), encoding="utf-8")
+                                    "schema_version": 2 if "script_plan" in self.deck else 1}, ensure_ascii=False, indent=2), encoding="utf-8")
         temp.replace(target)
         return str(target)

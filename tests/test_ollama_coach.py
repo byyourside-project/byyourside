@@ -12,7 +12,7 @@ class OllamaTests(unittest.TestCase):
         self.requests = []
         self.models = [{"name": "test:1b", "size": 100, "digest": "fixture"}]
         self.response = {"done": True, "done_reason": "stop", "load_duration": 10,
-                         "message": {"content": json.dumps({"1": [1, 1]})}}
+                         "message": {"content": json.dumps({"1": {"s": 1, "e": [1]}})}}
         self.redirect = False
         owner = self
         class Handler(BaseHTTPRequestHandler):
@@ -51,7 +51,7 @@ class OllamaTests(unittest.TestCase):
         self.assertFalse(request["stream"])
         self.assertFalse(request["think"])
         self.assertEqual(request["format"]["required"], ["1"])
-        self.assertEqual(request["format"]["properties"]["1"]["items"]["enum"], [-1, 0, 1])
+        self.assertEqual(request["format"]["properties"]["1"]["properties"]["s"]["enum"], [-1, 0, 1])
         self.assertEqual(response["judgments"][0]["keypoint_id"], "k1")
         self.assertEqual(response["judgments"][0]["evidence_segment_ids"], ["s1"])
         self.assertEqual(self.coach.model_info["digest"], "fixture")
@@ -60,15 +60,17 @@ class OllamaTests(unittest.TestCase):
     def test_multiple_points_and_split_evidence_restore_original_ids(self):
         self.job["slide"]["keypoints"].append({"keypoint_id": "long-original-id", "text": "시간 안내", "aliases": []})
         self.job["segments"].append({"segment_id": "s2", "text": "로컬에서 실행합니다."})
-        self.response["message"]["content"] = json.dumps({"1": [1, 1, 2], "2": [-1]})
+        self.response["message"]["content"] = json.dumps({"1": {"s": 1, "e": [1, 2]}, "2": {"s": -1, "e": []}})
         result = self.coach.evaluate(self.job)["judgments"]
         self.assertEqual([r["keypoint_id"] for r in result], ["k1", "long-original-id"])
         self.assertEqual(result[0]["evidence_segment_ids"], ["s1", "s2"])
         self.assertEqual(result[1]["status"], "unconfirmed")
-        self.assertEqual(self.requests[0]["format"]["properties"]["1"]["items"]["enum"], [-1, 0, 1, 2])
+        shape = self.requests[0]["format"]["properties"]["1"]
+        self.assertEqual(shape["properties"]["s"]["enum"], [-1, 0, 1])
+        self.assertEqual(shape["properties"]["e"]["items"]["enum"], [1, 2])
 
     def test_missing_or_extra_points_and_invalid_status_evidence_are_rejected(self):
-        for content in ({}, {"1": [1, 1], "2": [-1]}, [[1, 1]], {"1": [True, 1]}, {"1": [2, 1]}, {"1": [1]}, {"1": [0]}, {"1": [-1, 1]}):
+        for content in ({"1": {"s": 2, "e": [1]}}, {"1": {"s": True, "e": [1]}}, {"1": {"s": 1, "e": []}}, {"1": {"s": -1, "e": [1]}}, {"1": {"s": 0, "e": []}}, {}, {"1": [1, 1], "2": [-1]}, [[1, 1]], {"1": [True, 1]}, {"1": [2, 1]}, {"1": [1]}, {"1": [0]}, {"1": [-1, 1]}):
             self.response["message"]["content"] = json.dumps(content)
             with self.assertRaises(ValueError):
                 self.coach.evaluate(self.job)
@@ -105,7 +107,7 @@ class OllamaTests(unittest.TestCase):
 
     def test_evidence_indices_cannot_reference_missing_segments(self):
         for indices in ([True], [0], [2], ["1"]):
-            self.response["message"]["content"] = json.dumps({"1": [1, *indices]})
+            self.response["message"]["content"] = json.dumps({"1": {"s": 1, "e": indices}})
             with self.assertRaises(ValueError):
                 self.coach.evaluate(self.job)
         self.response["message"] = {}

@@ -14,7 +14,7 @@ from src.presentation_server import PresentationApp, make_server
 def main():
     parser = argparse.ArgumentParser(description="발표 중 코파일럿 로컬 화면")
     parser.add_argument("--port", type=int, default=8765)
-    parser.add_argument("--deck", type=Path, default=Path(__file__).resolve().parent.parent / "examples/presentation_deck.json")
+    parser.add_argument("--deck", type=Path, default=Path(__file__).resolve().parent.parent / "examples/presentation_script_deck.json")
     provider = parser.add_mutually_exclusive_group()
     provider.add_argument("--coach-url", help="선택적 로컬 모델 어댑터 HTTP 주소")
     provider.add_argument("--ollama-model", help="이미 설치된 Ollama 로컬 모델 이름")

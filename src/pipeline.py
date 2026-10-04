@@ -466,6 +466,7 @@ class SpeechPipeline:
             nonlocal vad_exception, dropped_segments_count
             try:
                 self.vad.reset()
+                endpoint_sample = 0
                 while not abort_event.is_set():
                     try:
                         item = audio_queue.get(timeout=0.1)
@@ -501,6 +502,10 @@ class SpeechPipeline:
                                     drop_ts=time.perf_counter()
                                 ))
                                 break
+                    watermark = self.vad.silence_watermark_sample
+                    if watermark > endpoint_sample:
+                        endpoint_sample = watermark
+                        logger.log_event("speech_endpoint", {"audio_end_ms": watermark / self.config.vad.sample_rate * 1000})
                     audio_queue.task_done()
 
                 if not abort_event.is_set():
@@ -947,6 +952,7 @@ class SpeechPipeline:
             nonlocal vad_exception, dropped_segments_count
             try:
                 self.vad.reset()
+                endpoint_sample = 0
                 while not abort_event.is_set():
                     try:
                         item = audio_queue.get(timeout=0.1)
@@ -989,6 +995,10 @@ class SpeechPipeline:
                                     drop_ts=time.perf_counter()
                                 ))
                                 break
+                    watermark = self.vad.silence_watermark_sample
+                    if watermark > endpoint_sample:
+                        endpoint_sample = watermark
+                        logger.log_event("speech_endpoint", {"audio_end_ms": watermark / self.config.vad.sample_rate * 1000})
                     audio_queue.task_done()
 
                 if not abort_event.is_set():

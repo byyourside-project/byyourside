@@ -91,3 +91,15 @@ coaching_action은 정상 또는 미언급 상태에서 NO_ACTION, 불확실한 
 coaching_inference의 outcome=response_validated는 응답 검증 경로, outcome=error는 실패 경로다. 실패에도 error_type과 wall_ms를 기록한다. 응답 검증 이벤트 자체는 현재 화면 반영을 보장하지 않으며 revision 검증에 따른 judgment_discarded와 함께 해석한다. 현재 요청 실패 시 과거 설명됨도 판단불가로 전환하고, 오래된 요청·다른 세션·종료 이후의 실패는 상태를 바꾸지 않는다.
 
 요청 유효성은 session_id, 종료 상태, 방문별 revision과 해당 슬라이드의 가장 최근 방문 version을 함께 확인한다. 재방문 이전 요청은 추론 전 및 결과 적용 시점에 버린다. 같은 슬라이드를 다시 방문하지 않았다면 이전 슬라이드의 늦은 결과를 기록할 수 있다.
+
+## 대본 모드 v2 (2026-10-05)
+
+기존 슬라이드 JSON v1과 병행한다. 대본 준비 API는 `POST /api/script`에 `{"text":"대본 원문", "duration_sec":90, "title":"대본 발표"}`를 전달한다. 원문을 줄/문장 단위로 분리하고 필수 항목과 `script_plan`을 생성한다. 클라이언트가 제공하는 계산값은 신뢰하지 않고 원문과 목표 시간에서 다시 계산한다.
+
+- `script_text`: 원문. `script_plan`: 순서 있는 구간, 길이 단위/기준 속도, 구간별 예정 시간.
+- `/api/start`: `microphone`과 `voice` bool. `/api/voice`: `enabled` bool. `/api/voice_test`: 시작한 세션의 음성 안내 시험.
+- 대본 세션의 `schema_version`은 2. `script_progress`에 확인 위치·다음 내용·고유 진행량·계획 대비 비율·예상 전체 시간·속도 상태·누락 후보·구간별 근거를 저장한다.
+- `voice_configured`, `voice_queued`, `voice_started`, `voice_completed`, `voice_cancelled`, `voice_failed`로 실제 출력 시도를 기록한다.
+- 현재 대본은 하나의 연속 흐름으로 추적하며 PPT 페이지와 자동 동기화하지 않는다. 최대 50구간, 의미 요청당 주변 구간 및 내용으로 찾은 후보만 포함한다.
+
+상세 사용법: `docs/user/presentation_script_guide.md`.

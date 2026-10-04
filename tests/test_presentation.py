@@ -87,6 +87,21 @@ class PresentationTests(unittest.TestCase):
         self.assertEqual(self.session.states["p1"]["evidence_segment_ids"], ["one"])
         self.assertFalse(self.session.alerts)
 
+    def test_exact_soft_cut_is_evaluated_after_detector_silence_without_next_speech(self):
+        self.assertIsNone(self.feed("기기에서 음성을 인식합니다", endpoint="soft_max_duration"))
+        self.assertEqual(self.session.finalize_pending_through(2.9), [])
+        jobs = self.session.finalize_pending_through(3.5)
+        self.assertEqual(len(jobs), 1)
+        self.session.apply(jobs[0], self.coach.evaluate(jobs[0]))
+        self.assertEqual(self.session.states["p1"]["status"], "explained")
+        self.assertEqual(self.session.finalize_pending_through(10), [])
+
+    def test_incomplete_tail_is_not_automatically_confirmed_when_silence_arrives(self):
+        self.feed("기기에서 음성을", endpoint="hard_max_duration")
+        job = self.session.finalize_pending_through(4)[0]
+        self.session.apply(job, self.coach.evaluate(job))
+        self.assertEqual(self.session.states["p1"]["status"], "unconfirmed")
+
     def test_negation_and_numeric_mismatch_are_uncertain(self):
         job = self.feed("기기에서 음성을 인식합니다 라는 말은 사실이 아닙니다")
         self.session.apply(job, self.coach.evaluate(job))

@@ -8,11 +8,15 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from src.presentation import Session, PhraseCoach, validate_deck
+from src.script_coaching import prepare_script, ScriptSession
+from src.voice_feedback import VoiceFeedback
 
 
 class PresentationApp:
     def __init__(self, deck, coach=None, output_dir="logs/presentation_sessions", pipeline_factory=None):
         self.deck = validate_deck(deck)
+        if "script_text" in self.deck:
+            self.deck = prepare_script(self.deck["script_text"], self.deck["total_duration_sec"], self.deck["title"])
         self.coach = coach or PhraseCoach()
         self.output_dir = output_dir
         self.pipeline_factory = pipeline_factory
@@ -25,11 +29,16 @@ class PresentationApp:
         self.jobs = queue.Queue(maxsize=8)
         self.shutdown = threading.Event()
         self.audio_origin = 0.0
+        self.audio_endpoint_sec = 0.0
         self.audio_done = True
         self.output_path = None
         self.event_overflow = threading.Event()
         self.last_saved = 0.0
         self.quality_flags = set()
+        self.voice_enabled = False
+        self.voice_last_event = None
+        self.voiced = set()
+        self.voice = VoiceFeedback(self._voice_event, self._voice_valid)
         self.workers = [threading.Thread(target=self._pump, daemon=True), threading.Thread(target=self._coach_loop, daemon=True)]
         for worker in self.workers:
             worker.start()
@@ -37,22 +46,45 @@ class PresentationApp:
     def state(self):
         with self.lock:
             return {"deck": self.deck, "session": self.session.snapshot() if self.session else None,
-                    "audio_status": self.audio_status, "coach": self.coach.name, "output_path": self.output_path}
+                    "audio_status": self.audio_status, "coach": self.coach.name, "output_path": self.output_path,
+                    "voice_enabled": self.voice_enabled, "voice_available": bool(self.voice.executable),
+                    "voice_last_event": self.voice_last_event}
+
+    def _voice_valid(self, session, alert):
+        with self.lock:
+            active = next((a for a in session.alerts if a["key"] == alert["key"]), None)
+            if alert["key"].startswith("pace:") and getattr(session, "pace", None) != alert["key"].split(":")[1]:
+                return False
+            return (self.voice_enabled and self.session is session and active is not None and
+                    active["expires_sec"] > session.clock() - session.origin and
+                    (active["version"] is None or active["version"] == session.version))
+
+    def _voice_event(self, session, kind, alert, **fields):
+        with self.lock:
+            session._event(kind, key=alert["key"], message=alert["message"], **fields)
+            if self.session is session:
+                self.voice_last_event = {"type": kind, **fields}
+            if session.status == "ended":
+                session.save(self.output_dir)
 
     def start(self, microphone=False):
         with self.lock:
             if self.session and self.session.status != "ended":
                 raise ValueError("이미 진행 중인 발표가 있습니다.")
-            self.session = Session(self.deck)
+            self.session = (ScriptSession if "script_plan" in self.deck else Session)(self.deck)
+            self.voiced.clear()
+            self.voice_last_event = None
             self.session._event("coach_configured", provider=self.coach.name,
                                 model=getattr(self.coach, "model", None),
                                 model_info=getattr(self.coach, "model_info", None),
                                 warm_up_metrics=getattr(self.coach, "warm_up_metrics", None),
                                 timeout_sec=getattr(self.coach, "timeout", None))
+            self.session._event("voice_configured", enabled=self.voice_enabled, provider="macOS say / Yuna")
             self.output_path = self.session.save(self.output_dir)
             self.audio_stop.clear()
             self.audio_done = not microphone
             self.audio_origin = 0.0
+            self.audio_endpoint_sec = 0.0
             self.quality_flags.clear()
             self.audio_status = "loading" if microphone else "manual"
             if microphone:
@@ -154,6 +186,12 @@ class PresentationApp:
                 "status": event.get("status", "OK"), "endpoint_reason": event["endpoint_reason"],
                 "stt_inference_ms": event["stt_inference_ms"],
                 "estimated_feedback_delay_ms": event["delay_after_speech_ms"]}))
+            for job in session.finalize_pending_through(self.audio_endpoint_sec):
+                self._schedule(session, job)
+        elif kind == "speech_endpoint":
+            self.audio_endpoint_sec = max(self.audio_endpoint_sec, self.audio_origin + event["audio_end_ms"] / 1000)
+            for job in session.finalize_pending_through(self.audio_endpoint_sec):
+                self._schedule(session, job)
         elif kind == "run_summary":
             session._event("audio_summary", summary=event)
             if not event.get("is_lossless", True) or event.get("overrun_count", 0):
@@ -188,6 +226,10 @@ class PresentationApp:
                     finally:
                         self.audio_events.task_done()
                 session.tick()
+                for alert in session.alerts:
+                    if self.voice_enabled and alert["key"] not in self.voiced and self._voice_valid(session, alert):
+                        self.voiced.add(alert["key"])
+                        self.voice.enqueue(session, alert)
                 if session.status == "stopping" and self.audio_done and self.audio_events.empty() and self.jobs.unfinished_tasks == 0:
                     session.finish()
                     self.output_path = session.save(self.output_dir)
@@ -199,12 +241,28 @@ class PresentationApp:
         if action == "start":
             if not isinstance(body.get("microphone", False), bool):
                 raise ValueError("microphone은 bool이어야 합니다.")
+            if not isinstance(body.get("voice", False), bool):
+                raise ValueError("voice는 bool이어야 합니다.")
+            with self.lock:
+                if self.session and self.session.status != "ended":
+                    raise ValueError("이미 진행 중인 발표가 있습니다.")
+                self.voice_enabled = body.get("voice", False)
             return self.start(body.get("microphone", False))
         with self.lock:
-            if action == "deck":
+            if action in ("deck", "script"):
                 if self.session and self.session.status != "ended":
                     raise ValueError("발표 종료 후 자료를 변경해 주세요.")
-                self.deck = validate_deck(body)
+                self.deck = prepare_script(body.get("text"), body.get("duration_sec"), body.get("title", "대본 발표")) if action == "script" else validate_deck(body)
+                if action == "deck" and "script_text" in self.deck:
+                    self.deck = prepare_script(self.deck["script_text"], self.deck["total_duration_sec"], self.deck["title"])
+            elif action == "voice":
+                if not isinstance(body.get("enabled"), bool):
+                    raise ValueError("enabled는 bool이어야 합니다.")
+                self.voice_enabled = body["enabled"]
+            elif action == "voice_test":
+                if not self.session:
+                    raise ValueError("발표를 시작한 뒤 음성 안내를 시험해 주세요.")
+                self.session.alert("voice_test:" + str(len(self.session.events)), "음성 안내 시험입니다. 이어폰에서 들리는지 확인해 주세요.", 3)
             elif action in ("navigate", "stop", "utterance"):
                 if not self.session or self.session.status != "running":
                     raise ValueError("발표를 먼저 시작해 주세요.")
@@ -212,6 +270,8 @@ class PresentationApp:
                     self.session.navigate(body.get("index"))
                 elif action == "stop":
                     self.session.stop()
+                    for alert in self.session.alerts:
+                        alert["expires_sec"] = self.session.elapsed()
                     self.audio_stop.set()
                 else:
                     if self.audio_status in ("loading", "recording"):
@@ -244,6 +304,7 @@ class PresentationApp:
                     self.session.finish()
                 self.output_path = self.session.save(self.output_dir)
         self.shutdown.set()
+        self.voice.close()
         for worker in self.workers:
             worker.join(timeout=3)
 
@@ -277,7 +338,7 @@ def make_server(app, port=8765):
                     else:
                         self.send_json(200, {**app.session.snapshot(), "segments": app.session.segments,
                                              "events": app.session.events, "alerts": app.session.alerts,
-                                             "active_alerts": app.session.snapshot()["alerts"], "schema_version": 1})
+                                             "active_alerts": app.session.snapshot()["alerts"], "schema_version": 2 if "script_plan" in app.session.deck else 1})
             elif route in ("/", "/app.js", "/style.css"):
                 name = "index.html" if route == "/" else route[1:]
                 payload = (root / name).read_bytes()

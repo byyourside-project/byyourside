@@ -37,6 +37,9 @@ class VadProcessor:
         self.current_speech_start_sample: Optional[int] = None
         self.carryover_samples: np.ndarray = np.array([], dtype=np.float32)
         self.carryover_start_sample: Optional[int] = None
+        self.idle_samples = 0
+        self.awaiting_endpoint = False
+        self.silence_watermark_sample = 0
 
     def _init_vad(self) -> None:
         vad_model_config = sherpa_onnx.VadModelConfig()
@@ -87,6 +90,8 @@ class VadProcessor:
                 self.carryover_samples = np.array([], dtype=np.float32)
                 self.carryover_start_sample = None
                 self.current_speech_start_sample = None
+                self.idle_samples = 0
+                self.awaiting_endpoint = False
                 # Re-initialize VAD internal circular buffer state after gap
                 self._init_vad()
 
@@ -101,6 +106,10 @@ class VadProcessor:
             self.samples_fed += len(sub_chunk)
 
             self.vad.accept_waveform(sub_chunk)
+            if self.vad.is_speech_detected():
+                self.idle_samples = 0
+            else:
+                self.idle_samples += len(sub_chunk)
 
             # Check if speech is currently active
             if self.vad.is_speech_detected():
@@ -116,6 +125,7 @@ class VadProcessor:
                             while not self.vad.empty():
                                 segs = self._pop_segments_with_preservation(endpoint_override="hard_max_duration")
                                 ready_segments.extend(segs)
+                                self.awaiting_endpoint = True
                             self.current_speech_start_sample = self.samples_fed
                             continue
 
@@ -125,7 +135,16 @@ class VadProcessor:
             while not self.vad.empty():
                 segs = self._pop_segments_with_preservation()
                 ready_segments.extend(segs)
+                self.awaiting_endpoint = True
                 self.current_speech_start_sample = None
+
+            # A forced cut can leave a short tail. Do not retain that tail until
+            # the next utterance (possibly minutes later). Require sustained
+            # detector silence so a brief reset at a cut cannot end speech.
+            if self.awaiting_endpoint and self.idle_samples >= self.config.min_silence_duration * self.config.sample_rate:
+                ready_segments.extend(self._drain_carryover("silence"))
+                self.silence_watermark_sample = self.samples_fed
+                self.awaiting_endpoint = False
 
         return ready_segments
 
@@ -235,7 +254,12 @@ class VadProcessor:
             segs = self._pop_segments_with_preservation(endpoint_override=endpoint_override)
             ready_segments.extend(segs)
 
-        # If any carryover remains after vad.flush(), emit it as a final segment
+        ready_segments.extend(self._drain_carryover("flush_continuation" if endpoint_override == "flush" else endpoint_override))
+        self.current_speech_start_sample = None
+        return ready_segments
+
+    def _drain_carryover(self, reason):
+        ready_segments = []
         if len(self.carryover_samples) > 0:
             self.segment_counter += 1
             seg_len = len(self.carryover_samples)
@@ -253,13 +277,12 @@ class VadProcessor:
                 start_ms=start_ms,
                 end_ms=end_ms,
                 duration_ms=dur_ms,
-                endpoint_reason="flush_continuation" if endpoint_override == "flush" else endpoint_override,
+                endpoint_reason=reason,
                 ready_ts=time.perf_counter()
             ))
             self.carryover_samples = np.array([], dtype=np.float32)
             self.carryover_start_sample = None
 
-        self.current_speech_start_sample = None
         return ready_segments
 
     def reset(self) -> None:
@@ -271,4 +294,6 @@ class VadProcessor:
         self.current_speech_start_sample = None
         self.carryover_samples = np.array([], dtype=np.float32)
         self.carryover_start_sample = None
-
+        self.idle_samples = 0
+        self.awaiting_endpoint = False
+        self.silence_watermark_sample = 0
