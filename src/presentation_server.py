@@ -11,6 +11,8 @@ from src.presentation import Session, PhraseCoach, validate_deck
 from src.script_coaching import prepare_script, ScriptSession
 from src.voice_feedback import VoiceFeedback
 
+_UNCHANGED = object()
+
 
 class PresentationApp:
     def __init__(self, deck, coach=None, output_dir="logs/presentation_sessions", pipeline_factory=None):
@@ -43,6 +45,8 @@ class PresentationApp:
         self.last_saved = 0.0
         self.quality_flags = set()
         self.voice_enabled = False
+        self.voice_scope = "pace"
+        self.voice_generation = 0
         self.voice_last_event = None
         self.voiced = set()
         self.voice = VoiceFeedback(self._voice_event, self._voice_valid)
@@ -59,26 +63,49 @@ class PresentationApp:
                     "audio_done": self.audio_done, "microphone": self.microphone,
                     "microphone_test": self.microphone_test, "audio_level": self.audio_level,
                     "voice_enabled": self.voice_enabled, "voice_available": bool(self.voice.executable),
+                    "voice_scope": self.voice_scope,
                     "voice_last_event": self.voice_last_event}
+
+    def _set_voice(self, enabled, scope):
+        if not isinstance(enabled, bool):
+            raise ValueError("음성 안내 enabled는 bool이어야 합니다.")
+        if not isinstance(scope, str) or scope not in ("pace", "all"):
+            raise ValueError("음성 안내 범위는 pace 또는 all이어야 합니다.")
+        if enabled and not self.voice.executable:
+            raise ValueError("이 환경에서는 로컬 음성 안내를 사용할 수 없습니다.")
+        if (enabled, scope) != (self.voice_enabled, self.voice_scope):
+            self.voice_generation += 1
+            self.voice_last_event = None
+            self.voice_enabled, self.voice_scope = enabled, scope
+            if self.session and self.session.status == "running":
+                self.session._event("voice_settings_changed", enabled=enabled, scope=scope,
+                                    generation=self.voice_generation)
 
     def _voice_valid(self, session, alert):
         with self.lock:
-            active = next((a for a in session.alerts if a["key"] == alert["key"]), None)
-            if alert["key"].startswith("pace:") and getattr(session, "pace", None) != alert["key"].split(":")[1]:
+            if session.status != "running" or alert.get("voice_generation", self.voice_generation) != self.voice_generation:
                 return False
+            if self.voice_scope == "pace" and not alert["key"].startswith(("pace:", "voice_test:")):
+                return False
+            active = next((a for a in session.alerts if a["key"] == alert["key"]), None)
+            if alert["key"].startswith("pace:"):
+                direction = alert["key"].split(":")[1]
+                if direction not in ("fast", "slow") or getattr(session, "pace", None) != direction:
+                    return False
             return (self.voice_enabled and self.session is session and active is not None and
                     active["expires_sec"] > session.clock() - session.origin and
                     (active["version"] is None or active["version"] == session.version))
 
     def _voice_event(self, session, kind, alert, **fields):
         with self.lock:
-            session._event(kind, key=alert["key"], message=alert["message"], **fields)
-            if self.session is session:
-                self.voice_last_event = {"type": kind, **fields}
+            session._event(kind, key=alert["key"], message=alert["message"],
+                           voice_generation=alert.get("voice_generation"), **fields)
+            if self.session is session and alert.get("voice_generation", self.voice_generation) == self.voice_generation:
+                self.voice_last_event = {"type": kind, "key": alert["key"], "message": alert["message"], **fields}
             if session.status == "ended":
                 session.save(self.output_dir)
 
-    def start(self, microphone=False, device_id=None):
+    def start(self, microphone=False, device_id=None, voice=None, voice_scope=_UNCHANGED):
         from src.microphone import validate_device_id
         validate_device_id(device_id)
         with self.lock:
@@ -88,6 +115,8 @@ class PresentationApp:
                 raise ValueError("이전 음성 입력을 종료하는 중입니다. 잠시 후 다시 시작해 주세요.")
             if self.microphone_test and self.microphone_test["status"] == "testing":
                 raise ValueError("마이크 입력 확인이 끝난 뒤 발표를 시작해 주세요.")
+            if voice is not None:
+                self._set_voice(voice, self.voice_scope if voice_scope is _UNCHANGED else voice_scope)
             self.session = (ScriptSession if "script_plan" in self.deck else Session)(self.deck)
             self.voiced.clear()
             self.voice_last_event = None
@@ -96,7 +125,8 @@ class PresentationApp:
                                 model_info=getattr(self.coach, "model_info", None),
                                 warm_up_metrics=getattr(self.coach, "warm_up_metrics", None),
                                 timeout_sec=getattr(self.coach, "timeout", None))
-            self.session._event("voice_configured", enabled=self.voice_enabled, provider="macOS say / Yuna")
+            self.session._event("voice_configured", enabled=self.voice_enabled, scope=self.voice_scope,
+                                generation=self.voice_generation, provider="macOS say / Yuna")
             self.output_path = self.session.save(self.output_dir)
             self.audio_stop.clear()
             self.audio_done = not microphone
@@ -294,9 +324,10 @@ class PresentationApp:
                         self.audio_events.task_done()
                 session.tick()
                 for alert in session.alerts:
-                    if self.voice_enabled and alert["key"] not in self.voiced and self._voice_valid(session, alert):
-                        self.voiced.add(alert["key"])
-                        self.voice.enqueue(session, alert)
+                    voice_alert = {**alert, "voice_generation": self.voice_generation}
+                    if self.voice_enabled and alert["key"] not in self.voiced and self._voice_valid(session, voice_alert):
+                        if self.voice.enqueue(session, voice_alert):
+                            self.voiced.add(alert["key"])
                 if session.status == "stopping" and self.audio_done and self.audio_events.empty():
                     # Closing the stream is also an utterance boundary. A hard
                     # cut followed by an empty flush tail otherwise stays in
@@ -334,10 +365,8 @@ class PresentationApp:
             if not isinstance(body.get("voice", False), bool):
                 raise ValueError("voice는 bool이어야 합니다.")
             with self.lock:
-                if self.session and self.session.status != "ended":
-                    raise ValueError("이미 진행 중인 발표가 있습니다.")
-                self.voice_enabled = body.get("voice", False)
-            return self.start(body.get("microphone", False), body.get("device_id"))
+                return self.start(body.get("microphone", False), body.get("device_id"),
+                                  voice=body.get("voice", False), voice_scope=body.get("voice_scope", self.voice_scope))
         with self.lock:
             if action == "microphone_retry":
                 from src.microphone import validate_device_id
@@ -369,12 +398,12 @@ class PresentationApp:
                 self.audio_error = None
                 self.audio_level = None
             elif action == "voice":
-                if not isinstance(body.get("enabled"), bool):
-                    raise ValueError("enabled는 bool이어야 합니다.")
-                self.voice_enabled = body["enabled"]
+                self._set_voice(body.get("enabled"), body.get("scope", self.voice_scope))
             elif action == "voice_test":
-                if not self.session:
+                if not self.session or self.session.status != "running":
                     raise ValueError("발표를 시작한 뒤 음성 안내를 시험해 주세요.")
+                if not self.voice_enabled:
+                    raise ValueError("음성 안내를 켠 뒤 시험해 주세요.")
                 self.session.alert("voice_test:" + str(len(self.session.events)), "음성 안내 시험입니다. 이어폰에서 들리는지 확인해 주세요.", 3)
             elif action in ("navigate", "stop", "utterance"):
                 if not self.session or self.session.status != "running":

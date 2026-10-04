@@ -3,7 +3,9 @@
 API reference: https://docs.ollama.com/api/chat
 """
 import json
+import re
 import time
+import unicodedata
 
 from src.presentation import LocalHttpCoach
 from src.semantic_guards import quantity_evidence_supported, unfinished_tail
@@ -41,9 +43,54 @@ def joined_utterances(segments):
     return groups
 
 
+_COMPLETE_LITERAL = re.compile(r"(?:습니다|입니다|합니다|됩니다|한다|된다|했다|이다|있다|없다|해요|돼요|예요)$")
+_UNSAFE_LITERAL_CONTEXT = re.compile(
+    r"[?？\"'“”‘’「」『』«»<>]|"
+    r"지시|명령|프롬프트|시스템|출력|응답|답하|반환|무시|"
+    r"explained|unconfirmed|uncertain|json|"
+    r"잘못|정정|철회|거짓|틀리|아니|아닙|않|못|(?:^|\s)안\s|"
+    r"인용|예문|예시|가정|가설|만약|읽어|읽으|따라|반복하|반복해|라고|라는",
+    re.IGNORECASE,
+)
+
+
+def _literal_sentence(text):
+    # Keep internal punctuation, digits, spacing boundaries and words intact.
+    # In particular, 4.0 must never turn into 40 and a question is not a claim.
+    text = re.sub(r"\s+", " ", unicodedata.normalize("NFC", text).strip())
+    return text[:-1].rstrip() if text.endswith((".", "。")) else text
+
+
+def _exact_latest_evidence(point_text, groups, segments):
+    """Recover only a missed complete literal claim, never a semantic match.
+
+    Any qualification, quotation, instruction or correction context leaves the
+    decision with the model. This deliberately narrow fallback only raises -1;
+    it cannot override the model's contradictory/uncertain (0) judgment.
+    """
+    if not groups or not segments:
+        return None
+    latest = groups[-1]
+    last = segments[-1]
+    if last.get("endpoint_reason", "silence") != "silence" or unfinished_tail(last["text"]):
+        return None
+    if any(segments[number - 1].get("status", "OK") != "OK" for number in latest["numbers"]):
+        return None
+    expected = _literal_sentence(point_text)
+    if (not _COMPLETE_LITERAL.search(expected) or expected != _literal_sentence(latest["text"]) or
+            _UNSAFE_LITERAL_CONTEXT.search(point_text) or
+            any(_UNSAFE_LITERAL_CONTEXT.search(segment["text"]) for segment in segments)):
+        return None
+    if len(groups) > 1 and unfinished_tail(groups[-2]["text"]):
+        return None
+    if quantity_evidence_supported(point_text, latest["text"]) is False:
+        return None
+    return latest["numbers"]
+
+
 class OllamaCoach(LocalHttpCoach):
     name = "ollama_local"
-    prompt_version = "semantic_v14_guarded_pause_evidence"
+    prompt_version = "semantic_v15_exact_latest_confirmation"
 
     def __init__(self, model, base_url="http://127.0.0.1:11434", timeout=2.0):
         if not isinstance(model, str) or not model.strip() or model.endswith((":cloud", "-cloud")):
@@ -122,6 +169,16 @@ class OllamaCoach(LocalHttpCoach):
             source_numbers = list(dict.fromkeys(source for number in evidence for source in evidence_groups[number]))
             evidence_text = " ".join(groups[number - 1]["text"] for number in evidence)
             reason, reason_code = reasons[status], None
+            if status == -1:
+                exact_evidence = _exact_latest_evidence(point["text"], groups, job["segments"])
+                if exact_evidence is not None:
+                    status, source_numbers = 1, exact_evidence
+                    evidence_text = groups[-1]["text"]
+                    reason = "최신 완성 발화가 대본 문장 전체와 정확히 일치해 모델의 미언급 판단을 보완했습니다."
+                    self.last_metrics.setdefault("exact_match_fallbacks", []).append({
+                        "keypoint_id": point["keypoint_id"], "model_status": -1,
+                        "evidence_segment_ids": [segment_ids[index - 1] for index in source_numbers],
+                    })
             if status in (0, 1) and len(segment_ids) in source_numbers and unfinished_tail(job["segments"][-1]["text"]):
                 status, reason_code = 0, "incomplete_tail"
                 reason = "문장 끝이 미완성 표현입니다. 이어 말한 내용을 함께 확인합니다."

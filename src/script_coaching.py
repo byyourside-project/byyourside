@@ -1,6 +1,5 @@
 """Ordered script preparation and plan-relative progress; timing is never an LLM estimate."""
 import copy
-import math
 import re
 from difflib import SequenceMatcher
 from src.presentation import Session, normalized, positive_number, validate_deck
@@ -36,11 +35,35 @@ class ScriptSession(Session):
     def __init__(self, deck, **kwargs):
         super().__init__(prepare_script(deck["script_text"], deck["total_duration_sec"], deck["title"]), **kwargs)
         self.plan = self.deck["script_plan"]
+        # Each unit contributes once, at the end of the speech that first
+        # established it. Model latency and re-reading never move this clock.
+        self.confirmed_audio_ends = {}
+        self.confirmed_judgment_delays = {}
         self.last_confirmed_audio_end = None
+        self.latest_audio_end = None
+        self.pace_input_uncertain = False
         self.pace_candidate = None
         self.pace_since = 0
         self.pace = "waiting"
+        self.pace_last_notice = {}
+        self.pace_notice_count = 0
         self.missing_ids = []
+
+    def ingest(self, segment):
+        count = len(self.segments)
+        job = super().ingest(segment)
+        if len(self.segments) != count:
+            item = self.segments[-1]
+            if normalized(item["text"]) or item.get("status", "OK") != "OK":
+                self.latest_audio_end = max(self.latest_audio_end or 0, item["end_sec"])
+                self.pace_input_uncertain |= item.get("status", "OK") != "OK"
+                if self.pace_input_uncertain:
+                    self._review_script()
+                # New speech might change or contradict the previous estimate.
+                # Preserve a direction candidate during ordinary processing so
+                # repeated short utterances can still establish a stable pace.
+                self._hold_pace("new_speech_pending", reset=item.get("status", "OK") != "OK")
+        return job
 
     def _pending_job(self, version):
         job = super()._pending_job(version)
@@ -61,16 +84,41 @@ class ScriptSession(Session):
         if not current:
             return
         valid = {s["segment_id"]: s for s in job["segments"]}
-        ends = [valid[e]["end_sec"] for j in response["judgments"] if j["status"] == "explained" for e in j["evidence_segment_ids"]]
-        if ends:
-            self.last_confirmed_audio_end = max(ends)
+        for kid in list(self.confirmed_audio_ends):
+            if self.states[kid]["status"] != "explained":
+                del self.confirmed_audio_ends[kid]
+                del self.confirmed_judgment_delays[kid]
+        for judgment in response["judgments"]:
+            kid = judgment["keypoint_id"]
+            if self.states[kid]["status"] == "explained" and kid not in self.confirmed_audio_ends:
+                ends = [valid[e]["end_sec"] for e in self.states[kid]["evidence_segment_ids"] if e in valid]
+                if ends:
+                    self.confirmed_audio_ends[kid] = max(ends)
+                    self.confirmed_judgment_delays[kid] = max(0.0, self.elapsed() - max(ends))
+        self.last_confirmed_audio_end = max(self.confirmed_audio_ends.values(), default=None)
         self._review_script()
+        self._update_pace()
 
     def issue(self, message):
         super().issue(message)
         # Loss/error evidence invalidates a gap immediately, including alerts
         # that were queued before the quality issue arrived.
         self._review_script()
+        self._hold_pace("record_quality_issue", reset=True)
+
+    def _hold_pace(self, reason, reset=False):
+        self.pace = "waiting"
+        if reset:
+            self.pace_candidate, self.pace_since = None, self.elapsed()
+        self._retract_pace_alerts(reason)
+
+    def _retract_pace_alerts(self, reason, keep_direction=None):
+        now = max(0.0, self.clock() - self.origin)
+        for alert in self.alerts:
+            if (alert["key"].startswith("pace:") and alert["expires_sec"] > now and
+                    (keep_direction is None or alert["key"].split(":")[1] != keep_direction)):
+                alert["expires_sec"] = now
+                self._event("alert_retracted", key=alert["key"], reason=reason)
 
     def _review_script(self):
         points = self.plan["units"]
@@ -80,7 +128,8 @@ class ScriptSession(Session):
         candidates = [p["keypoint_id"] for i,p in enumerate(points) if i < frontier and
                       self.states[p["keypoint_id"]]["status"] == "unconfirmed" and
                       (sum(j > i for j in explained) >= 2 or frontier == len(points)-1)]
-        if self.issues:
+        quality_problem = bool(self.issues) or self.pace_input_uncertain
+        if quality_problem:
             # The presenter may have spoken a section that capture or inference
             # lost. Preserve confirmed content while withholding a missing claim.
             for kid in candidates:
@@ -96,7 +145,7 @@ class ScriptSession(Session):
             if alert["key"].startswith("script_missing:") and alert["key"].split(":",1)[1] not in self.missing_ids:
                 if alert["expires_sec"] > self.elapsed():
                     alert["expires_sec"] = self.elapsed()
-                    self._event("alert_retracted", key=alert["key"], reason="record_quality_issue" if self.issues else "script_evidence_changed")
+                    self._event("alert_retracted", key=alert["key"], reason="record_quality_issue" if quality_problem else "script_evidence_changed")
 
     def progress(self):
         points = self.plan["units"]
@@ -105,16 +154,44 @@ class ScriptSession(Session):
         position = max((i for i,p in enumerate(points) if self.states[p["keypoint_id"]]["status"] == "explained"), default=-1)
         elapsed = self.elapsed()
         planned_sec = amount / self.plan["total_units"] * self.deck["total_duration_sec"]
-        ratio = planned_sec / elapsed if elapsed else None
-        recent = self.last_confirmed_audio_end is not None and elapsed - self.last_confirmed_audio_end <= 15
+        measured_sec = self.last_confirmed_audio_end
+        ratio = planned_sec / measured_sec if measured_sec else None
+        evidence_age = max(0.0, elapsed - measured_sec) if measured_sec is not None else None
+        recent = evidence_age is not None and evidence_age <= 15
+        processing_delay = max((self.confirmed_judgment_delays[kid] for kid,end in self.confirmed_audio_ends.items()
+                                if end == measured_sec), default=None)
         passed_unresolved = any(self.states[p["keypoint_id"]]["status"] != "explained" for p in points[:position+1])
-        reliable = recent and not self.issues and not self.pending and not any(r["pending"] for r in self.revisions.values()) and not passed_unresolved
+        processing = bool(self.pending) or any(r["pending"] for r in self.revisions.values())
+        latest_unresolved = (self.latest_audio_end is not None and
+                             (measured_sec is None or self.latest_audio_end > measured_sec + .001))
+        quality_problem = bool(self.issues) or self.pace_input_uncertain
+        if quality_problem:
+            reason = "입력·처리 오류가 있어 속도 판단을 보류합니다."
+        elif not recent:
+            reason = "최근에 확인된 발화가 없어 속도 판단을 기다립니다."
+        elif processing:
+            reason = "새 발화를 처리하고 있습니다. 처리 지연은 발표 속도에 포함하지 않습니다."
+        elif passed_unresolved:
+            reason = "앞선 대본에 확인되지 않은 구간이 있어 속도 판단을 보류합니다."
+        elif latest_unresolved:
+            reason = "최근 발화에서 새 대본 진행을 확인할 때까지 속도 판단을 보류합니다."
+        elif measured_sec < 15 or amount / self.plan["total_units"] < .1:
+            reason = "발화 15초와 대본 10% 이상을 확인한 뒤 속도를 안내합니다."
+        elif self.pace == "waiting":
+            reason = "같은 속도 상태가 5초 이상 유지되는지 확인하고 있습니다."
+        elif self.pace == "on_plan":
+            reason = "목표 발표 시간에 맞는 속도로 진행하고 있습니다."
+        else:
+            reason = "목표 발표 시간보다 빠르게 진행하고 있습니다." if self.pace == "fast" else "목표 발표 시간보다 느리게 진행하고 있습니다."
+        reliable = recent and not quality_problem and not processing and not passed_unresolved and not latest_unresolved
         return {"confirmed_units": amount, "total_units": self.plan["total_units"],
                 "fraction": amount / self.plan["total_units"], "baseline_units_per_min": self.plan["baseline_units_per_min"],
-                "observed_units_per_min": amount / elapsed * 60 if elapsed else None,
+                "observed_units_per_min": amount / measured_sec * 60 if measured_sec else None,
                 "planned_elapsed_sec": planned_sec, "ratio": ratio, "reliable": reliable,
-                "estimated_total_sec": elapsed / (amount / self.plan["total_units"]) if amount else None,
-                "pace": self.pace, "missing_ids": self.missing_ids,
+                "estimated_total_sec": measured_sec / (amount / self.plan["total_units"]) if amount and measured_sec else None,
+                "measured_elapsed_sec": measured_sec, "plan_total_duration_sec": self.deck["total_duration_sec"],
+                "processing_delay_sec": processing_delay, "evidence_age_sec": evidence_age,
+                "pace": self.pace, "pace_reason": reason, "missing_ids": self.missing_ids,
                 "position_index": position, "next_text": points[position+1]["text"] if position+1 < len(points) else None,
                 "units": [{**p, **self.states[p["keypoint_id"]]} for p in points]}
 
@@ -122,16 +199,50 @@ class ScriptSession(Session):
         super().tick()
         if self.status != "running":
             return
+        self._update_pace()
+
+    def _update_pace(self):
+        if self.status != "running":
+            self._hold_pace("session_not_running", reset=True)
+            return
         progress = self.progress()
         ratio = progress["ratio"]
-        candidate = ("fast" if ratio > 1.25 else "slow" if ratio < .75 else "on_plan") if progress["reliable"] and self.elapsed() >= 15 and progress["fraction"] >= .1 else "waiting"
+        if not progress["reliable"]:
+            # Only an ordinary, fresh inference wait preserves the candidate.
+            # Errors, stale evidence, skipped content and unresolved new speech
+            # must earn a new stable estimate before any advice is spoken.
+            pending = bool(self.pending) or any(r["pending"] for r in self.revisions.values())
+            fresh = (progress["measured_elapsed_sec"] is not None and
+                     progress["evidence_age_sec"] <= 15)
+            self._hold_pace("pace_evidence_pending" if pending else "pace_evidence_unreliable",
+                            reset=bool(self.issues) or self.pace_input_uncertain or not (pending and fresh))
+            return
+        if progress["measured_elapsed_sec"] < 15 or progress["fraction"] < .1:
+            self._hold_pace("pace_minimum_evidence", reset=True)
+            return
+        # Ignore floating-point rounding at the inclusive 25% boundaries.
+        candidate = "fast" if ratio > 1.25 + 1e-9 else "slow" if ratio < .75 - 1e-9 else "on_plan"
         if candidate != self.pace_candidate:
             self.pace_candidate, self.pace_since = candidate, self.elapsed()
+            self._retract_pace_alerts("pace_direction_changed")
         self.pace = candidate if self.elapsed() - self.pace_since >= 5 else "waiting"
+        if self.pace == "waiting":
+            return
+        self._retract_pace_alerts("pace_direction_changed", keep_direction=self.pace)
         if self.pace in ("fast", "slow"):
-            bucket = math.floor(self.elapsed()/30)
-            message = "계획보다 빠르게 진행하고 있습니다. 조금 천천히 말씀해 주세요." if self.pace == "fast" else "계획보다 느리게 진행하고 있습니다. 남은 내용을 조금 더 빠르게 이어가 주세요."
-            self.alert(f"pace:{self.pace}:{bucket}", message, 1)
+            now = self.elapsed()
+            if now - self.pace_last_notice.get(self.pace, -100) < 30:
+                return
+            message = "계획보다 빠릅니다. 조금 천천히 말씀해 주세요." if self.pace == "fast" else "계획보다 느립니다. 조금 더 빠르게 이어가 주세요."
+            key = f"pace:{self.pace}:{self.pace_notice_count + 1}"
+            self.alert(key, message, 1)
+            if key in self.alert_keys:
+                self.pace_last_notice[self.pace] = now
+                self.pace_notice_count += 1
+
+    def stop(self):
+        super().stop()
+        self._hold_pace("session_not_running", reset=True)
 
     def boundary(self, slide_id, version, notify=True):
         # Review script gaps from content evidence rather than a manual slide clock.

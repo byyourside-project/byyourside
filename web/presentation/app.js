@@ -33,8 +33,43 @@ async function command(action, data) {
   commandRevision++;
   error('');
   renderMicrophoneState();
+  renderVoiceState(false);
   try { render(await api(action, data)); return true; } catch (e) { error(e.message); return false; }
-  finally { busy = false; pendingCommand = null; renderMicrophoneState(); }
+  finally { busy = false; pendingCommand = null; renderMicrophoneState(); renderVoiceState(false); }
+}
+function renderVoiceState(syncSelection = true) {
+  const data = current || {}, scope = data.voice_scope === 'all' ? 'all' : 'pace';
+  if (syncSelection) {$('voice-enabled').checked = !!data.voice_enabled; $('voice-scope').value = scope;}
+  $('voice-enabled').disabled = !data.voice_available || busy;
+  $('voice-scope').disabled = !data.voice_available || busy;
+  $('voice-test').disabled = data.session?.status !== 'running' || !data.voice_enabled || !data.voice_available || busy;
+  const scopeLabel = scope === 'pace' ? '빠름·느림만' : '전체 안내';
+  $('voice-status').textContent = !data.voice_available ? '이 환경의 로컬 음성 출력을 사용할 수 없습니다.' : data.voice_enabled ? `음성 안내 켜짐 · ${scopeLabel} · 이어폰 출력을 확인하세요.` : `음성 안내 꺼짐 · 선택 범위: ${scopeLabel}`;
+  const voiceEventLabels = {voice_queued:'안내 대기',voice_started:'안내 재생 중',voice_completed:'안내 재생 완료',voice_cancelled:'지난 안내 취소',voice_failed:'음성 출력 실패'};
+  if (data.voice_last_event) {
+    const event = data.voice_last_event;
+    $('voice-status').textContent += ' · ' + (voiceEventLabels[event.type] || event.type);
+    if (['voice_queued','voice_started','voice_completed'].includes(event.type) && typeof event.message === 'string' && event.message.trim()) $('voice-status').textContent += ' · ' + event.message;
+    if (event.type === 'voice_failed' && typeof event.reason === 'string' && event.reason.trim()) $('voice-status').textContent += ' · ' + event.reason;
+  }
+}
+function renderScriptPace(script, deck) {
+  const reliable = script.reliable === true;
+  const effectivePace = reliable ? script.pace : 'waiting';
+  const pace = {waiting:'판단 보류',fast:'계획보다 빠름',slow:'계획보다 느림',on_plan:'계획 내'}[effectivePace] || '판단 보류';
+  const measured = Number.isFinite(script.measured_elapsed_sec) ? script.measured_elapsed_sec : null;
+  const displayMeasurements = reliable && measured !== null && measured > 0;
+  $('script-pace-state').textContent = pace;
+  $('script-pace-state').className = 'pace-status ' + (['fast','slow','on_plan'].includes(effectivePace) ? effectivePace : 'waiting');
+  $('script-progress').textContent = `현재 확인 위치 ${script.position_index+1}/${script.units.length} · 설명 확인 ${Math.round(script.fraction*100)}% · 건너뛴 구간 확인 ${script.missing_ids.length}개` + (script.next_text ? ` · 다음 예정: ${script.next_text}` : ' · 마지막 구간까지 확인');
+  $('pace-target').textContent = seconds(Number.isFinite(script.plan_total_duration_sec) ? script.plan_total_duration_sec : deck.total_duration_sec);
+  $('pace-measured').textContent = measured !== null && measured > 0 ? seconds(measured) : '확인 대기';
+  $('pace-baseline').textContent = Number.isFinite(script.baseline_units_per_min) ? `${Math.round(script.baseline_units_per_min)}글자/분` : '계획 준비 중';
+  $('pace-observed').textContent = displayMeasurements && Number.isFinite(script.observed_units_per_min) ? `${Math.round(script.observed_units_per_min)}글자/분` : '판단 보류';
+  $('pace-ratio').textContent = displayMeasurements && Number.isFinite(script.ratio) ? `계획의 ${Math.round(script.ratio*100)}%` : '판단 보류';
+  $('pace-estimated').textContent = displayMeasurements && ['fast','slow','on_plan'].includes(effectivePace) && Number.isFinite(script.estimated_total_sec) && script.estimated_total_sec > 0 ? seconds(script.estimated_total_sec) : '판단 보류';
+  $('pace-reason').textContent = script.pace_reason || (script.pace === 'waiting' || !reliable ? '대본 진행을 확인한 뒤 속도를 안내합니다.' : '확인된 대본 진행량을 목표 시간과 비교했습니다.');
+  $('pace-timing-note').textContent = Number.isFinite(script.processing_delay_sec) && script.processing_delay_sec > 0 ? `최근 내용 확인 지연 ${script.processing_delay_sec.toFixed(1)}초 · 이 지연은 속도 계산에서 제외합니다.` : '내용 판단 지연은 속도 계산에서 제외합니다.';
 }
 function microphoneDeviceId() { return selectedMicrophone === '' ? null : Number(selectedMicrophone); }
 function renderMicrophoneState() {
@@ -128,16 +163,10 @@ function render(data) {
   const script = s?.script_progress, plan = deck.script_plan;
   if (plan && !$('script-text').value) {$('script-text').value = deck.script_text; $('script-duration').value = deck.total_duration_sec;}
   $('script-progress-card').hidden = !script;
-  if (script) {
-    const pace = {waiting:'속도 판단 대기',fast:'계획보다 빠름',slow:'계획보다 느림',on_plan:'계획 범위'}[script.pace];
-    $('script-progress').textContent = `현재 확인 위치 ${script.position_index+1}/${script.units.length} · 설명 확인 ${Math.round(script.fraction*100)}% · ${pace} · 건너뛴 구간 확인 ${script.missing_ids.length}개` + (script.estimated_total_sec ? ` · 예상 전체 시간 ${seconds(script.estimated_total_sec)}` : '') + (script.next_text ? ` · 다음 예정: ${script.next_text}` : ' · 마지막 구간까지 확인');
-  }
+  if (script) renderScriptPace(script, deck);
   $('script-plan').textContent = plan ? `대본 ${plan.units.length}구간 · 목표 ${seconds(deck.total_duration_sec)} · 기준 분당 ${Math.round(plan.baseline_units_per_min)}글자 (공백·문장부호 제외)` : '대본과 목표 시간을 넣으면 구간별 예정 시간과 기준 속도를 계산합니다.';
   for (const id of ['script-text','script-duration','prepare-script']) $(id).disabled = !!s && s.status !== 'ended';
-  $('voice-enabled').disabled = !data.voice_available;
-  $('voice-test').disabled = !s || !data.voice_enabled;
-  $('voice-status').textContent = !data.voice_available ? '이 환경의 로컬 음성 출력을 사용할 수 없습니다.' : data.voice_enabled ? '음성 안내 켜짐 · 이어폰 출력 장치를 확인하세요.' : '음성 안내 꺼짐';
-  if (data.voice_last_event) $('voice-status').textContent += ' · ' + ({voice_queued:'안내 대기',voice_started:'안내 재생 중',voice_completed:'안내 재생 완료',voice_cancelled:'지난 안내 취소',voice_failed:'음성 출력 실패'})[data.voice_last_event.type];
+  renderVoiceState();
 
   $('connection').textContent = '로컬 연결됨';
   $('connection-dot').style.background = '#5b9470';
@@ -196,7 +225,7 @@ function render(data) {
   $('issues').replaceChildren(...(s?.issues.length ? s.issues.map(issue => node('p',issue,'issue')) : [node('p',s ? `이벤트 ${s.event_count}개 기록 · ${s.status === 'ended' ? '종료 결과 저장됨' : '자동 저장 중'}` : '발표를 시작하면 기록합니다.','muted')]));
   $('save-path').textContent = data.output_path || '';
 }
-$('start').addEventListener('click',() => command('start',{microphone:$('input-mode').value === 'mic',device_id:microphoneDeviceId(),voice:$('voice-enabled').checked}));
+$('start').addEventListener('click',() => command('start',{microphone:$('input-mode').value === 'mic',device_id:microphoneDeviceId(),voice:$('voice-enabled').checked,voice_scope:$('voice-scope').value}));
 $('input-mode').addEventListener('change',renderMicrophoneState);
 $('microphone-device').addEventListener('change',e => {selectedMicrophone = e.target.value; microphoneSelectionChanged = true; microphoneSelectionTouched = true; renderMicrophoneState();});
 $('microphone-refresh').addEventListener('click',refreshMicrophones);
@@ -214,5 +243,6 @@ poll();
 refreshMicrophones();
 
 $('prepare-script').addEventListener('click',async () => {await command('script',{text:$('script-text').value,duration_sec:Number($('script-duration').value)});});
-$('voice-enabled').addEventListener('change',() => command('voice',{enabled:$('voice-enabled').checked}));
+$('voice-enabled').addEventListener('change',() => command('voice',{enabled:$('voice-enabled').checked,scope:$('voice-scope').value}));
+$('voice-scope').addEventListener('change',() => command('voice',{enabled:$('voice-enabled').checked,scope:$('voice-scope').value}));
 $('voice-test').addEventListener('click',() => command('voice_test',{}));
