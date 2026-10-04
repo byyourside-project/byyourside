@@ -84,7 +84,8 @@ class PipelineResult:
 class SpeechPipeline:
     """Unified audio pipeline supporting direct WAV, simulated replay, and live microphone."""
 
-    def __init__(self, config: Optional[PipelineConfig] = None, stt: Optional[Any] = None):
+    def __init__(self, config: Optional[PipelineConfig] = None, stt: Optional[Any] = None,
+                 event_sink=None, terminal_output: bool = True):
         self.config = config or PipelineConfig()
         self.config.validate()
 
@@ -93,6 +94,12 @@ class SpeechPipeline:
         self._active_workers: List[threading.Thread] = []
         self._worker_lock = threading.Lock()
         self.last_run_timing: Dict[str, Any] = {}
+        self.event_sink = event_sink
+        self.terminal_output = terminal_output
+
+    def _logger(self, run_id):
+        return StructuredLogger(run_id=run_id, log_dir=self.config.log_dir,
+                                terminal_output=self.terminal_output, event_sink=self.event_sink)
 
     def _call_stt_transcribe(
         self,
@@ -143,7 +150,7 @@ class SpeechPipeline:
                 self.config.stt.batch_timeout_base_sec + total_audio_dur * self.config.stt.batch_timeout_per_second
             )
 
-        logger = StructuredLogger(run_id=run_id, log_dir=self.config.log_dir)
+        logger = self._logger(run_id)
         logger.log_event("run_start", {
             "mode": "wav_direct_stt",
             "wav_path": wav_path,
@@ -250,7 +257,7 @@ class SpeechPipeline:
         samples, sr = load_and_normalize_audio(wav_path, target_sr=16000)
         total_audio_dur = len(samples) / float(sr)
 
-        logger = StructuredLogger(run_id=run_id, log_dir=self.config.log_dir)
+        logger = self._logger(run_id)
         logger.log_event("run_start", {
             "mode": "wav_vad",
             "wav_path": wav_path,
@@ -416,7 +423,7 @@ class SpeechPipeline:
 
         effective_req_timeout = request_timeout if request_timeout is not None else self.config.stt.request_timeout_sec
 
-        logger = StructuredLogger(run_id=run_id, log_dir=self.config.log_dir)
+        logger = self._logger(run_id)
         logger.log_event("run_start", {
             "mode": "replay",
             "wav_path": wav_path,
@@ -825,7 +832,8 @@ class SpeechPipeline:
         run_id: Optional[str] = None,
         snapshot_interval_sec: float = 60.0,
         request_timeout: Optional[float] = None,
-        stream_factory: Optional[Any] = None
+        stream_factory: Optional[Any] = None,
+        stop_event: Optional[Any] = None
     ) -> PipelineResult:
         """
         Live microphone recording and real-time STT pipeline.
@@ -853,7 +861,7 @@ class SpeechPipeline:
 
         effective_req_timeout = request_timeout if request_timeout is not None else self.config.stt.request_timeout_sec
 
-        logger = StructuredLogger(run_id=run_id, log_dir=self.config.log_dir)
+        logger = self._logger(run_id)
         logger.log_event("run_start", {
             "mode": "mic",
             "duration_seconds": duration_seconds,
@@ -1117,7 +1125,7 @@ class SpeechPipeline:
         t_stt.start()
 
         blocksize = self.config.audio.chunk_size_samples
-        start_wall_time = time.time()
+        start_wall_time = time.perf_counter()
         last_snapshot_time = start_wall_time
 
         try:
@@ -1130,11 +1138,11 @@ class SpeechPipeline:
                     blocksize=blocksize,
                     callback=mic_callback
                 ):
-                    while time.time() - start_wall_time < duration_seconds:
-                        if abort_event.is_set():
+                    while time.perf_counter() - start_wall_time < duration_seconds:
+                        if abort_event.is_set() or (stop_event is not None and stop_event.is_set()):
                             break
                         time.sleep(0.05)
-                        now = time.time()
+                        now = time.perf_counter()
                         if now - last_snapshot_time >= snapshot_interval_sec:
                             elapsed = now - start_wall_time
                             child_pid = getattr(self.stt, "child_pid", None)
@@ -1154,6 +1162,7 @@ class SpeechPipeline:
                                 "segments_so_far": len(segment_results)
                             }
                             periodic_snapshots.append(snapshot)
+                            logger.log_event("capture_snapshot", snapshot)
                             print(f"[MIC Monitor] {elapsed:5.1f}s / {duration_seconds}s | "
                                   f"ParentRSS: {mem.get('parent_rss_mb', mem['current_rss_mb']):5.1f}MB | "
                                   f"ChildRSS: {mem.get('child_rss_mb', 0.0):5.1f}MB | "
@@ -1284,5 +1293,3 @@ class SpeechPipeline:
         finally:
             if not self.has_running_workers():
                 logger.close()
-
-

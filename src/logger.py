@@ -7,10 +7,11 @@ from typing import Dict, Any, Optional
 class StructuredLogger:
     """Structured JSONL logger for VAD and STT pipeline benchmarks."""
 
-    def __init__(self, run_id: str, log_dir: str = "logs", terminal_output: bool = True):
+    def __init__(self, run_id: str, log_dir: str = "logs", terminal_output: bool = True, event_sink=None):
         self.run_id = run_id
         self.log_dir = log_dir
         self.terminal_output = terminal_output
+        self.event_sink = event_sink
         self._lock = threading.Lock()
         os.makedirs(self.log_dir, exist_ok=True)
         self.log_file_path = os.path.join(self.log_dir, f"stt_run_{run_id}.jsonl")
@@ -35,6 +36,18 @@ class StructuredLogger:
             }
             self._file.write(json.dumps(entry, ensure_ascii=False) + "\n")
             self._file.flush()
+        # Consumers should enqueue only; never run coaching in the audio/STT path.
+        if self.event_sink is not None:
+            try:
+                self.event_sink(dict(entry))
+            except Exception as exc:
+                with self._lock:
+                    if not self._file.closed:
+                        self._file.write(json.dumps({
+                            "run_id": self.run_id, "event_type": "event_sink_error",
+                            "error": str(exc)
+                        }, ensure_ascii=False) + "\n")
+                        self._file.flush()
 
     def log_segment_result(
         self,
