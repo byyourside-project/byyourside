@@ -221,12 +221,16 @@ def make_handler(app):
             with path.open('rb') as source:
                 source.seek(start)
                 remaining = end - start + 1
-                while remaining > 0:
-                    block = source.read(min(65536, remaining))
-                    if not block:
-                        break
-                    self.wfile.write(block)
-                    remaining -= len(block)
+                try:
+                    while remaining > 0:
+                        block = source.read(min(65536, remaining))
+                        if not block:
+                            break
+                        self.wfile.write(block)
+                        remaining -= len(block)
+                except ConnectionError:
+                    # The browser routinely drops audio streams when the user seeks or switches records.
+                    self.close_connection = True
 
         def do_GET(self):
             if not self.trusted_request():
@@ -254,6 +258,8 @@ def make_handler(app):
                         return self.send_json({'error': '분석 결과가 아직 없습니다.'}, 404)
                     return self.serve_file(folder / ('audio.wav' if kind == 'media' else 'report.json'), audio=kind == 'media', download=kind == 'export')
                 return self.send_json({'error': '페이지를 찾지 못했습니다.'}, 404)
+            except ConnectionError:
+                self.close_connection = True
             except (ValueError, OSError) as exc:
                 return self.send_json({'error': str(exc)}, 400)
 

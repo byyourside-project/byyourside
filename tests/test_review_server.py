@@ -1,7 +1,9 @@
 import http.client
 import json
+import socket
 import tempfile
 import threading
+import time
 import unittest
 from http.server import ThreadingHTTPServer
 
@@ -51,6 +53,22 @@ class ReviewServerTests(unittest.TestCase):
         self.assertEqual(data, bytes(range(10)))
         status, _, _ = self.request('GET', '/api/media/' + self.job_id, headers={'Range': 'bytes=999-'})
         self.assertEqual(status, 416)
+
+    def test_client_disconnect_during_audio_is_not_an_error(self):
+        folder = self.app.folder(self.job_id)
+        (folder / 'audio.wav').write_bytes(b'RIFF' + bytes(4 * 1024 * 1024))
+        errors = []
+        self.server.handle_error = lambda request, address: errors.append(address)
+        sock = socket.create_connection(('127.0.0.1', self.server.server_address[1]), timeout=5)
+        host = f'127.0.0.1:{self.server.server_address[1]}'
+        sock.sendall(f'GET /api/media/{self.job_id} HTTP/1.1\r\nHost: {host}\r\n\r\n'.encode())
+        sock.recv(1024)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, b'\x01\x00\x00\x00\x00\x00\x00\x00')
+        sock.close()  # Abort mid-stream, like a browser seeking to another position.
+        status, _, _ = self.request('GET', '/api/status')
+        self.assertEqual(status, 200)
+        time.sleep(0.5)
+        self.assertEqual(errors, [])
 
     def test_external_origin_and_host_rejected(self):
         for headers in ({'Origin': 'https://example.com'}, {'Host': 'example.com'}):
