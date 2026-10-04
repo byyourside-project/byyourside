@@ -9,6 +9,7 @@
   <main>
     <section class="intro"><span class="eyebrow">PRESENTATION PRACTICE</span><h1>한 번의 연습,<br>조금 더 편안한 발표.</h1><p>내 목소리를 다시 듣고, 말의 속도와 쉼을 살펴보세요.</p></section>
     <section class="workspace">
+      <div class="sidebar">
       <aside class="setup card">
         <div class="section-title"><span class="step">01</span><h2>연습 준비</h2></div>
         <label class="dropzone" id="dropzone" for="audio-file"><span class="upload-icon">↥</span><strong id="file-label">녹음 파일을 놓아주세요</strong><span>또는 눌러서 선택 · M4A, WAV, MP3 등</span><small>20분 · 80MB까지</small></label>
@@ -22,10 +23,16 @@
         <button id="demo" class="button secondary" type="button" hidden>보내준 첫 녹음으로 살펴보기</button>
         <p id="status" class="status" role="status" aria-live="polite">파일을 선택하면 시작할 수 있어요.</p>
       </aside>
+      <section class="history card" aria-labelledby="history-title">
+        <div class="section-title"><span class="step">02</span><h2 id="history-title">지난 연습</h2><span id="history-count" class="history-count"></span></div>
+        <ol id="history-list" class="history-list"></ol>
+        <p id="history-empty" class="history-empty">아직 저장된 연습이 없어요.<br>분석한 녹음은 이 PC에 자동으로 보관됩니다.</p>
+      </section>
+      </div>
       <section class="results" aria-label="발표 분석 결과">
         <div id="empty" class="empty card"><div class="empty-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><h2>내 발표를 돌아볼 시간</h2><p>녹음을 분석하면 구간별 전사와<br>속도·쉼에 대한 확인 포인트가 나타납니다.</p><div class="empty-tags"><span>말의 속도</span><span>쉼의 간격</span><span>대본 비교</span></div><small>영상·시선 분석과 실시간 코칭은 후속 기능입니다.</small></div>
         <div id="review" hidden>
-          <div class="review-heading"><div><span class="eyebrow">YOUR REHEARSAL</span><h2 id="review-title">내 연습 기록</h2></div><a id="download" class="text-link">결과 저장 ↓</a></div>
+          <div class="review-heading"><div class="title-wrap"><span class="eyebrow">YOUR REHEARSAL</span><input id="review-title" class="title-input" maxlength="80" aria-label="연습 제목 (눌러서 바꾸기)" title="눌러서 제목 바꾸기"></div><a id="download" class="text-link">결과 저장 ↓</a></div>
           <div id="summary" class="stats"></div>
           <section class="player card"><div class="player-heading"><strong>다시 듣기</strong><span id="play-time">00:00</span></div><div id="timeline" class="timeline" aria-label="발화 구간"></div><audio id="player" controls preload="metadata"></audio><p>구간을 누르면 해당 위치부터 재생합니다.</p></section>
           <div id="warnings" class="warnings"></div>
