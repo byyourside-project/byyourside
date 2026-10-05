@@ -183,16 +183,18 @@ class PresentationTests(unittest.TestCase):
         self.session.apply(old, self.coach.evaluate(old))
         self.assertEqual(self.session.states["p1"]["status"], "explained")
 
-    def test_stale_job_and_invalid_output_cannot_mutate_state(self):
+    def test_previous_revision_confirms_safe_content_but_invalid_latest_output_is_atomic(self):
         first = self.feed("기기에서 음성을 인식합니다")
         second = self.feed("다음 설명입니다", 3, 4, "two")
         self.session.apply(first, self.coach.evaluate(first))
-        self.assertEqual(self.session.states["p1"]["status"], "unconfirmed")
+        self.assertEqual(self.session.states["p1"]["status"], "explained")
+        self.assertTrue(self.session.revisions[second["version"]]["pending"])
+        before = copy.deepcopy(self.session.states)
         response = self.coach.evaluate(second)
         response["judgments"][0]["evidence_segment_ids"] = ["invented"]
         with self.assertRaises(ValueError):
             self.session.apply(second, response)
-        self.assertEqual(self.session.states["p1"]["status"], "unconfirmed")
+        self.assertEqual(self.session.states, before)
 
     def test_stop_freezes_timer_and_persists_full_evidence(self):
         job = self.feed("기기에서 음성을 인식합니다")

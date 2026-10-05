@@ -48,6 +48,7 @@ class ScriptSession(Session):
         self.pace_last_notice = {}
         self.pace_notice_count = 0
         self.missing_ids = []
+        self.missing_notice_counts = {}
 
     def ingest(self, segment):
         count = len(self.segments)
@@ -63,6 +64,7 @@ class ScriptSession(Session):
                 # Preserve a direction candidate during ordinary processing so
                 # repeated short utterances can still establish a stable pace.
                 self._hold_pace("new_speech_pending", reset=item.get("status", "OK") != "OK")
+                self._review_script()
         return job
 
     def _pending_job(self, version):
@@ -76,19 +78,21 @@ class ScriptSession(Session):
         ranked = sorted(range(len(points)), key=lambda i: SequenceMatcher(None, normalized(points[i]["text"]), text).ratio(), reverse=True)[:2]
         indices = set(range(max(0,cursor-1), min(len(points),cursor+7))) | set(ranked)
         job["slide"]["keypoints"] = [p for i,p in enumerate(points) if i in indices]
+        job["script_tracking"] = True
+        job["confirmed_keypoint_ids"] = [p["keypoint_id"] for p in points if self.states[p["keypoint_id"]]["status"] == "explained"]
         return job
 
     def apply(self, job, response):
-        current = self.job_is_current(job)
-        super().apply(job, response)
-        if not current:
-            return
+        relevant = self.job_is_relevant(job)
+        applied = super().apply(job, response)
+        if not relevant:
+            return []
         valid = {s["segment_id"]: s for s in job["segments"]}
         for kid in list(self.confirmed_audio_ends):
             if self.states[kid]["status"] != "explained":
                 del self.confirmed_audio_ends[kid]
                 del self.confirmed_judgment_delays[kid]
-        for judgment in response["judgments"]:
+        for judgment in applied:
             kid = judgment["keypoint_id"]
             if self.states[kid]["status"] == "explained" and kid not in self.confirmed_audio_ends:
                 ends = [valid[e]["end_sec"] for e in self.states[kid]["evidence_segment_ids"] if e in valid]
@@ -98,6 +102,7 @@ class ScriptSession(Session):
         self.last_confirmed_audio_end = max(self.confirmed_audio_ends.values(), default=None)
         self._review_script()
         self._update_pace()
+        return applied
 
     def issue(self, message):
         super().issue(message)
@@ -129,6 +134,7 @@ class ScriptSession(Session):
                       self.states[p["keypoint_id"]]["status"] == "unconfirmed" and
                       (sum(j > i for j in explained) >= 2 or frontier == len(points)-1)]
         quality_problem = bool(self.issues) or self.pace_input_uncertain
+        processing = bool(self.pending) or any(r["pending"] for r in self.revisions.values())
         if quality_problem:
             # The presenter may have spoken a section that capture or inference
             # lost. Preserve confirmed content while withholding a missing claim.
@@ -137,15 +143,28 @@ class ScriptSession(Session):
             if candidates:
                 self._event("judgment_deferred", reason="record_quality_issue", keypoint_ids=candidates)
             self.missing_ids = []
+        elif processing:
+            # An older completed sentence can advance progress immediately,
+            # while the newer pending sentence may still fill an apparent gap.
+            self.missing_ids = []
         else:
             self.missing_ids = candidates
         for kid in self.missing_ids:
-            self.alert(f"script_missing:{kid}", "건너뛴 설명을 확인해 주세요. " + next(p["text"] for p in points if p["keypoint_id"]==kid)[:140], 2)
+            prefix = f"script_missing:{kid}"
+            if any(a["key"].startswith("script_missing:") and a["key"].split(":")[1] == kid and
+                   a["expires_sec"] > self.elapsed() for a in self.alerts):
+                continue
+            count = self.missing_notice_counts.get(kid, 0)
+            key = prefix if count == 0 else f"{prefix}:{count+1}"
+            self.alert(key, "건너뛴 설명을 확인해 주세요. " + next(p["text"] for p in points if p["keypoint_id"]==kid)[:140], 2)
+            if key in self.alert_keys:
+                self.missing_notice_counts[kid] = count+1
         for alert in self.alerts:
-            if alert["key"].startswith("script_missing:") and alert["key"].split(":",1)[1] not in self.missing_ids:
+            if alert["key"].startswith("script_missing:") and alert["key"].split(":")[1] not in self.missing_ids:
                 if alert["expires_sec"] > self.elapsed():
                     alert["expires_sec"] = self.elapsed()
-                    self._event("alert_retracted", key=alert["key"], reason="record_quality_issue" if quality_problem else "script_evidence_changed")
+                    self._event("alert_retracted", key=alert["key"], reason="record_quality_issue" if quality_problem else
+                                "newer_judgment_pending" if processing else "script_evidence_changed")
 
     def progress(self):
         points = self.plan["units"]

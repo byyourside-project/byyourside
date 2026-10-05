@@ -13,7 +13,7 @@ class OllamaTests(unittest.TestCase):
         self.requests = []
         self.models = [{"name": "test:1b", "size": 100, "digest": "fixture"}]
         self.response = {"done": True, "done_reason": "stop", "load_duration": 10,
-                         "message": {"content": json.dumps({"1": {"s": 1, "e": [1]}})}}
+                         "message": {"content": json.dumps({"P1": {"s": 1, "e": [1]}})}}
         self.redirect = False
         owner = self
         class Handler(BaseHTTPRequestHandler):
@@ -51,8 +51,8 @@ class OllamaTests(unittest.TestCase):
         self.assertEqual(request["model"], "test:1b")
         self.assertFalse(request["stream"])
         self.assertFalse(request["think"])
-        self.assertEqual(request["format"]["required"], ["1"])
-        self.assertEqual(request["format"]["properties"]["1"]["properties"]["s"]["enum"], [-1, 0, 1])
+        self.assertEqual(request["format"]["required"], ["P1"])
+        self.assertEqual(request["format"]["properties"]["P1"]["properties"]["s"]["enum"], [-1, 0, 1])
         self.assertEqual(response["judgments"][0]["keypoint_id"], "k1")
         self.assertEqual(response["judgments"][0]["evidence_segment_ids"], ["s1"])
         self.assertEqual(self.coach.model_info["digest"], "fixture")
@@ -80,17 +80,17 @@ class OllamaTests(unittest.TestCase):
     def test_multiple_points_and_split_evidence_restore_original_ids(self):
         self.job["slide"]["keypoints"].append({"keypoint_id": "long-original-id", "text": "시간 안내", "aliases": []})
         self.job["segments"].append({"segment_id": "s2", "text": "로컬에서 실행합니다."})
-        self.response["message"]["content"] = json.dumps({"1": {"s": 1, "e": [1, 2]}, "2": {"s": -1, "e": []}})
+        self.response["message"]["content"] = json.dumps({"P1": {"s": 1, "e": [1, 2]}, "P2": {"s": -1, "e": []}})
         result = self.coach.evaluate(self.job)["judgments"]
         self.assertEqual([r["keypoint_id"] for r in result], ["k1", "long-original-id"])
         self.assertEqual(result[0]["evidence_segment_ids"], ["s1", "s2"])
         self.assertEqual(result[1]["status"], "unconfirmed")
-        shape = self.requests[0]["format"]["properties"]["1"]
+        shape = self.requests[0]["format"]["properties"]["P1"]
         self.assertEqual(shape["properties"]["s"]["enum"], [-1, 0, 1])
         self.assertEqual(shape["properties"]["e"]["items"]["enum"], [1, 2])
 
     def test_missing_or_extra_points_and_invalid_status_evidence_are_rejected(self):
-        for content in ({"1": {"s": 2, "e": [1]}}, {"1": {"s": True, "e": [1]}}, {"1": {"s": 1, "e": []}}, {"1": {"s": -1, "e": [1]}}, {"1": {"s": 0, "e": []}}, {}, {"1": [1, 1], "2": [-1]}, [[1, 1]], {"1": [True, 1]}, {"1": [2, 1]}, {"1": [1]}, {"1": [0]}, {"1": [-1, 1]}):
+        for content in ({"P1": {"s": 2, "e": [1]}}, {"P1": {"s": True, "e": [1]}}, {"P1": {"s": 1, "e": []}}, {"P1": {"s": -1, "e": [1]}}, {"P1": {"s": 0, "e": []}}, {}, {"P1": [1, 1], "P2": [-1]}, [[1, 1]], {"P1": [True, 1]}, {"P1": [2, 1]}, {"P1": [1]}, {"P1": [0]}, {"P1": [-1, 1]}):
             self.response["message"]["content"] = json.dumps(content)
             with self.assertRaises(ValueError):
                 self.coach.evaluate(self.job)
@@ -126,8 +126,8 @@ class OllamaTests(unittest.TestCase):
             self.coach.evaluate(self.job)
 
     def test_evidence_indices_cannot_reference_missing_segments(self):
-        for indices in ([True], [0], [2], ["1"]):
-            self.response["message"]["content"] = json.dumps({"1": {"s": 1, "e": indices}})
+        for indices in ([True], [0], [2], ["P1"]):
+            self.response["message"]["content"] = json.dumps({"P1": {"s": 1, "e": indices}})
             with self.assertRaises(ValueError):
                 self.coach.evaluate(self.job)
         self.response["message"] = {}
@@ -154,7 +154,7 @@ class ExactLatestFallbackTests(unittest.TestCase):
         for index, value in (fields or {}).items():
             segments[index].update(value)
         groups = len(joined_utterances(segments))
-        content = {"1": {"s": status, "e": [] if status == -1 else [groups]}}
+        content = {"P1": {"s": status, "e": [] if status == -1 else [groups]}}
         response = {"done": True, "done_reason": "stop", "message": {"content": json.dumps(content)}}
         job = {"slide": {"title": "대본", "keypoints": [{"keypoint_id": "script-3", "text": point or self.point}]},
                "segments": segments}

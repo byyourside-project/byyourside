@@ -1,0 +1,469 @@
+{
+  "scope": "Real local-model text replay at recorded arrival gaps; no microphone or playback",
+  "model": "qwen3:8b",
+  "prompt_version": "semantic_v16_focused_independent_evidence",
+  "record_name": "presentation_09d14a93c64b47fd88f3f429198e0a74.json",
+  "record_sha256": "ca16dc0df09e58e74f33a086372b36098576b6011a14235d8fc0461b6b8b2549",
+  "replay_source_sha256": {
+    "src/ollama_coach.py": "d966ff60db6ee4d986dae552214a53cba95bf2e65e27efba7f526043279b86e6",
+    "src/presentation.py": "c53ea6a01cee4f015a3c5c18efd6dbdb1308b180b9b350510e90d56a43e791fe",
+    "src/script_coaching.py": "30d383dc33bc2a0118944c6d25e4896c63f0cbb14452de50864c368807b2565d",
+    "src/presentation_server.py": "6ed3aeb3e6fca9e327dc387042ce8bd6dcbc5a9ddedcea655a4fd7b9a60a382d",
+    "src/semantic_guards.py": "29b637df9dfaadb341dfdd18c331911fc8a84069ca390f9d364d96547c9f49f7",
+    "scripts/validate_live_coaching_latency.py": "3e6b433a09cbf31b6a7f64ae42e92de4a6438ead7cd914b00d3dd7271dd86d7b"
+  },
+  "replay_sources_unchanged": true,
+  "preparation_sec": 4.464786915981676,
+  "warm_up_metrics": {
+    "wall_ms": 4389.787249965593,
+    "requested_keypoint_ids": [
+      "warmup"
+    ],
+    "requested_keypoint_count": 1,
+    "input_keypoint_count": 1,
+    "total_duration": 4383704667,
+    "load_duration": 2292621917,
+    "prompt_eval_count": 833,
+    "prompt_eval_duration": 1473221000,
+    "eval_count": 14,
+    "eval_duration": 602346000
+  },
+  "speaker_playback": false,
+  "physical_microphone": false,
+  "system_volume_changed": false,
+  "comparison": {
+    "keypoint_id": "script-1",
+    "speech_end_sec": 6.403398500023876,
+    "before_confirmed_sec": 19.211595875036437,
+    "after_confirmed_sec": 8.047904998995364,
+    "before_delay_sec": 12.808197375012561,
+    "after_delay_sec": 1.644506498971488,
+    "second_speech_start_sec": 9.077398500023875,
+    "confirmed_before_second_speech": true
+  },
+  "states": {
+    "script-1": {
+      "status": "explained",
+      "reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다.",
+      "evidence_segment_ids": [
+        "presentation_09d14a93c64b47fd88f3f429198e0a74_mic1:1"
+      ]
+    },
+    "script-2": {
+      "status": "explained",
+      "reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다.",
+      "evidence_segment_ids": [
+        "presentation_09d14a93c64b47fd88f3f429198e0a74_mic1:2",
+        "presentation_09d14a93c64b47fd88f3f429198e0a74_mic1:3"
+      ]
+    },
+    "script-3": {
+      "status": "explained",
+      "reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다.",
+      "evidence_segment_ids": [
+        "presentation_09d14a93c64b47fd88f3f429198e0a74_mic1:4"
+      ]
+    },
+    "script-4": {
+      "status": "explained",
+      "reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다.",
+      "evidence_segment_ids": [
+        "presentation_09d14a93c64b47fd88f3f429198e0a74_mic1:5"
+      ]
+    },
+    "script-5": {
+      "status": "explained",
+      "reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다.",
+      "evidence_segment_ids": [
+        "presentation_09d14a93c64b47fd88f3f429198e0a74_mic1:6"
+      ]
+    },
+    "script-6": {
+      "status": "explained",
+      "reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다.",
+      "evidence_segment_ids": [
+        "presentation_09d14a93c64b47fd88f3f429198e0a74_mic1:7"
+      ]
+    },
+    "script-7": {
+      "status": "explained",
+      "reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다.",
+      "evidence_segment_ids": [
+        "presentation_09d14a93c64b47fd88f3f429198e0a74_mic1:8"
+      ]
+    }
+  },
+  "errors": [],
+  "coaching_inferences": [
+    {
+      "event_id": 14,
+      "session_id": "1f7b75c211a44b069a47dee1f221721c",
+      "type": "coaching_inference",
+      "elapsed_sec": 8.047969333012588,
+      "provider": "ollama_local",
+      "outcome": "response_validated",
+      "result_scope": "current",
+      "applied_keypoint_ids": [
+        "script-1",
+        "script-2",
+        "script-3",
+        "script-4",
+        "script-5",
+        "script-6"
+      ],
+      "confirmed_keypoint_ids": [
+        "script-1"
+      ],
+      "queue_wait_ms": 0.08816696936264634,
+      "version": 1,
+      "revision": 1,
+      "wall_ms": 1290.6076660146937,
+      "metrics": {
+        "wall_ms": 1290.2584579424001,
+        "requested_keypoint_ids": [
+          "script-1",
+          "script-4"
+        ],
+        "requested_keypoint_count": 2,
+        "input_keypoint_count": 6,
+        "total_duration": 1283862458,
+        "load_duration": 1816917,
+        "prompt_eval_count": 872,
+        "prompt_eval_duration": 192676000,
+        "eval_count": 25,
+        "eval_duration": 1086942000
+      }
+    },
+    {
+      "event_id": 25,
+      "session_id": "1f7b75c211a44b069a47dee1f221721c",
+      "type": "coaching_inference",
+      "elapsed_sec": 12.078783790988382,
+      "provider": "ollama_local",
+      "outcome": "response_validated",
+      "result_scope": "current",
+      "applied_keypoint_ids": [
+        "script-1",
+        "script-2",
+        "script-3",
+        "script-4",
+        "script-5",
+        "script-6",
+        "script-7"
+      ],
+      "confirmed_keypoint_ids": [
+        "script-1"
+      ],
+      "queue_wait_ms": 0.10762503370642662,
+      "version": 1,
+      "revision": 2,
+      "wall_ms": 1378.4138329792768,
+      "metrics": {
+        "wall_ms": 1378.0357500072569,
+        "requested_keypoint_ids": [
+          "script-1",
+          "script-2"
+        ],
+        "requested_keypoint_count": 2,
+        "input_keypoint_count": 7,
+        "total_duration": 1372684375,
+        "load_duration": 1636167,
+        "prompt_eval_count": 889,
+        "prompt_eval_duration": 200239000,
+        "eval_count": 26,
+        "eval_duration": 1168040000
+      }
+    },
+    {
+      "event_id": 35,
+      "session_id": "1f7b75c211a44b069a47dee1f221721c",
+      "type": "coaching_inference",
+      "elapsed_sec": 14.880688333010767,
+      "provider": "ollama_local",
+      "outcome": "response_validated",
+      "result_scope": "current",
+      "applied_keypoint_ids": [
+        "script-2",
+        "script-3",
+        "script-4",
+        "script-5",
+        "script-6",
+        "script-7"
+      ],
+      "confirmed_keypoint_ids": [
+        "script-2"
+      ],
+      "queue_wait_ms": 0.2912079798988998,
+      "version": 1,
+      "revision": 3,
+      "wall_ms": 1369.4457090459764,
+      "metrics": {
+        "wall_ms": 1368.2032910292037,
+        "requested_keypoint_ids": [
+          "script-2",
+          "script-7"
+        ],
+        "requested_keypoint_count": 2,
+        "input_keypoint_count": 7,
+        "total_duration": 1357344667,
+        "load_duration": 1852333,
+        "prompt_eval_count": 884,
+        "prompt_eval_duration": 212962000,
+        "eval_count": 25,
+        "eval_duration": 1136320000
+      }
+    },
+    {
+      "event_id": 45,
+      "session_id": "1f7b75c211a44b069a47dee1f221721c",
+      "type": "coaching_inference",
+      "elapsed_sec": 21.473387915990315,
+      "provider": "ollama_local",
+      "outcome": "response_validated",
+      "result_scope": "current",
+      "applied_keypoint_ids": [
+        "script-2",
+        "script-3",
+        "script-4",
+        "script-5",
+        "script-6",
+        "script-7"
+      ],
+      "confirmed_keypoint_ids": [
+        "script-2",
+        "script-3"
+      ],
+      "queue_wait_ms": 0.14300004113465548,
+      "version": 1,
+      "revision": 4,
+      "wall_ms": 1384.2159579508007,
+      "metrics": {
+        "wall_ms": 1382.6070840004832,
+        "requested_keypoint_ids": [
+          "script-2",
+          "script-3"
+        ],
+        "requested_keypoint_count": 2,
+        "input_keypoint_count": 7,
+        "total_duration": 1375813500,
+        "load_duration": 1316458,
+        "prompt_eval_count": 925,
+        "prompt_eval_duration": 233103000,
+        "eval_count": 26,
+        "eval_duration": 1138181000
+      }
+    },
+    {
+      "event_id": 55,
+      "session_id": "1f7b75c211a44b069a47dee1f221721c",
+      "type": "coaching_inference",
+      "elapsed_sec": 27.121677457995247,
+      "provider": "ollama_local",
+      "outcome": "response_validated",
+      "result_scope": "current",
+      "applied_keypoint_ids": [
+        "script-3",
+        "script-4",
+        "script-5",
+        "script-6",
+        "script-7"
+      ],
+      "confirmed_keypoint_ids": [
+        "script-3",
+        "script-4"
+      ],
+      "queue_wait_ms": 0.7003750069998205,
+      "version": 1,
+      "revision": 5,
+      "wall_ms": 1583.278790989425,
+      "metrics": {
+        "wall_ms": 1582.3138330015354,
+        "requested_keypoint_ids": [
+          "script-3",
+          "script-4"
+        ],
+        "requested_keypoint_count": 2,
+        "input_keypoint_count": 6,
+        "total_duration": 1571990375,
+        "load_duration": 3774459,
+        "prompt_eval_count": 952,
+        "prompt_eval_duration": 395531000,
+        "eval_count": 26,
+        "eval_duration": 1167347000
+      }
+    },
+    {
+      "event_id": 64,
+      "session_id": "1f7b75c211a44b069a47dee1f221721c",
+      "type": "coaching_inference",
+      "elapsed_sec": 33.1775956240017,
+      "provider": "ollama_local",
+      "outcome": "response_validated",
+      "result_scope": "current",
+      "applied_keypoint_ids": [
+        "script-4",
+        "script-5",
+        "script-6",
+        "script-7"
+      ],
+      "confirmed_keypoint_ids": [
+        "script-4",
+        "script-5"
+      ],
+      "queue_wait_ms": 0.5152500234544277,
+      "version": 1,
+      "revision": 6,
+      "wall_ms": 1559.2807499924675,
+      "metrics": {
+        "wall_ms": 1557.9442080343142,
+        "requested_keypoint_ids": [
+          "script-4",
+          "script-5"
+        ],
+        "requested_keypoint_count": 2,
+        "input_keypoint_count": 5,
+        "total_duration": 1546423959,
+        "load_duration": 1910875,
+        "prompt_eval_count": 983,
+        "prompt_eval_duration": 409847000,
+        "eval_count": 26,
+        "eval_duration": 1127024000
+      }
+    },
+    {
+      "event_id": 71,
+      "session_id": "1f7b75c211a44b069a47dee1f221721c",
+      "type": "coaching_inference",
+      "elapsed_sec": 38.22307199903298,
+      "provider": "ollama_local",
+      "outcome": "response_validated",
+      "result_scope": "current",
+      "applied_keypoint_ids": [
+        "script-5",
+        "script-6",
+        "script-7"
+      ],
+      "confirmed_keypoint_ids": [
+        "script-5",
+        "script-6"
+      ],
+      "queue_wait_ms": 0.5674170097336173,
+      "version": 1,
+      "revision": 7,
+      "wall_ms": 1581.8151659914292,
+      "metrics": {
+        "wall_ms": 1580.8288330445066,
+        "requested_keypoint_ids": [
+          "script-5",
+          "script-6"
+        ],
+        "requested_keypoint_count": 2,
+        "input_keypoint_count": 4,
+        "total_duration": 1571691792,
+        "load_duration": 1777833,
+        "prompt_eval_count": 1013,
+        "prompt_eval_duration": 430451000,
+        "eval_count": 26,
+        "eval_duration": 1134512000
+      }
+    },
+    {
+      "event_id": 78,
+      "session_id": "1f7b75c211a44b069a47dee1f221721c",
+      "type": "coaching_inference",
+      "elapsed_sec": 44.0506647080183,
+      "provider": "ollama_local",
+      "outcome": "response_validated",
+      "result_scope": "current",
+      "applied_keypoint_ids": [
+        "script-5",
+        "script-6",
+        "script-7"
+      ],
+      "confirmed_keypoint_ids": [
+        "script-5",
+        "script-6",
+        "script-7"
+      ],
+      "queue_wait_ms": 0.21766696590930223,
+      "version": 1,
+      "revision": 8,
+      "wall_ms": 2227.044166007545,
+      "metrics": {
+        "wall_ms": 2226.8054579617456,
+        "requested_keypoint_ids": [
+          "script-5",
+          "script-6",
+          "script-7"
+        ],
+        "requested_keypoint_count": 3,
+        "input_keypoint_count": 3,
+        "total_duration": 2218292584,
+        "load_duration": 1649709,
+        "prompt_eval_count": 1037,
+        "prompt_eval_duration": 438042000,
+        "eval_count": 38,
+        "eval_duration": 1772595000
+      }
+    }
+  ],
+  "replay_path": "logs/live_coaching_latency/122a177dd1b1/1f7b75c211a44b069a47dee1f221721c.json",
+  "passed": true,
+  "verified_on": "2026-10-05",
+  "branch": "codex/presentation-pace-voice",
+  "baseline_commit": "2b524252a52bbc58f38a0e66806306b84f250a57",
+  "inference_summary": {
+    "count": 8,
+    "median_ms": 1471.748353971634,
+    "max_ms": 2227.044166007545,
+    "errors": 0
+  },
+  "verification": {
+    "python_unittest": {
+      "passed": true,
+      "count": 291,
+      "seconds": 135.262,
+      "log": "logs/live_latency_full_final.txt"
+    },
+    "ui_dom": {
+      "passed": true,
+      "count": 59,
+      "log": "logs/live_latency_ui_tests_final.txt"
+    },
+    "python_syntax": true,
+    "javascript_syntax": true,
+    "git_diff_check": true
+  },
+  "verified_source_sha256": {
+    "src/ollama_coach.py": "d966ff60db6ee4d986dae552214a53cba95bf2e65e27efba7f526043279b86e6",
+    "src/presentation.py": "c53ea6a01cee4f015a3c5c18efd6dbdb1308b180b9b350510e90d56a43e791fe",
+    "src/script_coaching.py": "30d383dc33bc2a0118944c6d25e4896c63f0cbb14452de50864c368807b2565d",
+    "src/presentation_server.py": "6ed3aeb3e6fca9e327dc387042ce8bd6dcbc5a9ddedcea655a4fd7b9a60a382d",
+    "src/semantic_guards.py": "29b637df9dfaadb341dfdd18c331911fc8a84069ca390f9d364d96547c9f49f7",
+    "scripts/validate_live_coaching_latency.py": "3e6b433a09cbf31b6a7f64ae42e92de4a6438ead7cd914b00d3dd7271dd86d7b",
+    "web/presentation/app.js": "7b1d9971d68f77f7218315c70a2d55c2b7120186df5d66aab41e33befe1dafc1",
+    "web/presentation/index.html": "79098028ba9702239abb27f84a5b83e13a5912f43231d9e62b2c7be1c2955b2c",
+    "web/presentation/style.css": "c04eb9c3501cdaa0aca51fd71e2e3b572bfaba35e484100df5783c5d00f0e731",
+    "tests/test_coach_start.py": "88ee168e2a0d4ce533573681d6a31ab2a282e4e5b7d40280100e01dd95ef4992",
+    "tests/test_coach_concurrency.py": "cf1ab3ff060528462be7fd655f09164b385ed54b1f9833f8bf78d410430bc19f",
+    "tests/test_coach_streaming.py": "28b51683c07c1d0bf09be5b13b402ad5334c7c7ce5a340940bd0bd0ea41c41e0",
+    "tests/test_inflight_judgments.py": "39e04ae4fdd9dc74597639cfac0ab46f0f84ef5ea6295ea2f316492cdc8cf48e",
+    "tests/test_pause_recovery.py": "1cee37d2b3ef425f28f6f19bed9847008a6f593844c2d70f71f38a29d6ffe378",
+    "tests/test_presentation_ui.cjs": "599faee8957646add40a0b6b5a705026a1e302932881e204d1d6312aa33e87b2",
+    "tests/test_presentation.py": "bb3297d07350260df2f272c16c135553a8ceee0958eac58f9647bb95b299cad5",
+    "tests/test_ollama_coach.py": "03911bd193639559e272552304f673a4f1fe0d72bddeb8afe5f4da7c1ab057d0",
+    "tests/test_semantic_guards.py": "fbee3484e455a44f54171b9d65c33ee68feb27790e3eae24f8668b5d5bdbdf1a"
+  },
+  "browser_ready": {
+    "url": "http://127.0.0.1:8765/",
+    "script_units": 7,
+    "target_duration_sec": 90.0,
+    "last_unit": "감사합니다.",
+    "voice_enabled": false,
+    "voice_scope": "pace",
+    "audio_status": "idle",
+    "session": null,
+    "screenshot": "presentation_live_latency_ready.png",
+    "screenshot_sha256": "4f05494ff182c223a5302ff9a575ffaecae0eff22a7b79dda2c2189e2bc582e5"
+  }
+}

@@ -24,6 +24,9 @@ class PresentationApp:
         self.pipeline_factory = pipeline_factory
         self.lock = threading.RLock()
         self.session = None
+        self.closing = False
+        self.start_preparing = False
+        self.coach_status = {"status": "ready", "message": "발표 시작 준비가 되었습니다."}
         self.audio_status = "idle"
         self.audio_input_mode = None
         self.audio_requested_device_id = None
@@ -57,6 +60,7 @@ class PresentationApp:
     def state(self):
         with self.lock:
             return {"deck": self.deck, "session": self.session.snapshot() if self.session else None,
+                    "start_preparing": self.start_preparing, "coach_status": dict(self.coach_status),
                     "audio_status": self.audio_status, "coach": self.coach.name, "output_path": self.output_path,
                     "audio_input_mode": self.audio_input_mode, "audio_error": self.audio_error,
                     "audio_requested_device_id": self.audio_requested_device_id,
@@ -66,13 +70,16 @@ class PresentationApp:
                     "voice_scope": self.voice_scope,
                     "voice_last_event": self.voice_last_event}
 
-    def _set_voice(self, enabled, scope):
+    def _validate_voice(self, enabled, scope):
         if not isinstance(enabled, bool):
             raise ValueError("음성 안내 enabled는 bool이어야 합니다.")
         if not isinstance(scope, str) or scope not in ("pace", "all"):
             raise ValueError("음성 안내 범위는 pace 또는 all이어야 합니다.")
         if enabled and not self.voice.executable:
             raise ValueError("이 환경에서는 로컬 음성 안내를 사용할 수 없습니다.")
+
+    def _set_voice(self, enabled, scope):
+        self._validate_voice(enabled, scope)
         if (enabled, scope) != (self.voice_enabled, self.voice_scope):
             self.voice_generation += 1
             self.voice_last_event = None
@@ -109,14 +116,40 @@ class PresentationApp:
         from src.microphone import validate_device_id
         validate_device_id(device_id)
         with self.lock:
+            if self.closing:
+                raise ValueError("종료 중인 서버에서는 발표를 시작할 수 없습니다.")
+            if self.start_preparing:
+                raise ValueError("모델을 준비하는 중입니다. 준비가 끝난 뒤 시작해 주세요.")
             if self.session and self.session.status != "ended":
                 raise ValueError("이미 진행 중인 발표가 있습니다.")
             if self.audio_thread and self.audio_thread.is_alive():
                 raise ValueError("이전 음성 입력을 종료하는 중입니다. 잠시 후 다시 시작해 주세요.")
             if self.microphone_test and self.microphone_test["status"] == "testing":
                 raise ValueError("마이크 입력 확인이 끝난 뒤 발표를 시작해 주세요.")
+            selected_scope = self.voice_scope if voice_scope is _UNCHANGED else voice_scope
             if voice is not None:
-                self._set_voice(voice, self.voice_scope if voice_scope is _UNCHANGED else voice_scope)
+                self._validate_voice(voice, selected_scope)
+            prepare = getattr(self.coach, "prepare_for_start", None)
+            self.start_preparing = True
+            if callable(prepare):
+                self.coach_status = {"status": "preparing", "message": "모델 준비 중 · 아직 발표를 시작하지 마세요."}
+        # Loading after idle must finish before the timer or microphone starts.
+        # Do not hold the UI lock during model/network work.
+        try:
+            preparation = prepare() if callable(prepare) else None
+        except Exception as exc:
+            with self.lock:
+                self.start_preparing = False
+                self.coach_status = {"status": "error", "message": f"모델 준비 실패: {exc}"}
+            raise ValueError(f"모델 준비 실패: {exc}") from exc
+        with self.lock:
+            self.start_preparing = False
+            if self.closing or self.shutdown.is_set():
+                self.coach_status = {"status": "error", "message": "서버 종료로 발표 시작을 취소했습니다."}
+                raise ValueError(self.coach_status["message"])
+            self.coach_status = {"status": "ready", "message": "모델 준비 완료 · 발표를 시작합니다."}
+            if voice is not None:
+                self._set_voice(voice, selected_scope)
             self.session = (ScriptSession if "script_plan" in self.deck else Session)(self.deck)
             self.voiced.clear()
             self.voice_last_event = None
@@ -125,6 +158,8 @@ class PresentationApp:
                                 model_info=getattr(self.coach, "model_info", None),
                                 warm_up_metrics=getattr(self.coach, "warm_up_metrics", None),
                                 timeout_sec=getattr(self.coach, "timeout", None))
+            if preparation is not None:
+                self.session._event("coach_prepared", preparation=preparation, before_timer=True)
             self.session._event("voice_configured", enabled=self.voice_enabled, scope=self.voice_scope,
                                 generation=self.voice_generation, provider="macOS say / Yuna")
             self.output_path = self.session.save(self.output_dir)
@@ -211,8 +246,12 @@ class PresentationApp:
     def _schedule(self, session, job):
         if job is None:
             return
+        job = {**job, "queued_at_perf": time.perf_counter()}
         try:
             self.jobs.put_nowait((session, job))
+            session._event("coaching_requested", version=job["version"], revision=job["revision"],
+                           keypoint_count=len(job["slide"]["keypoints"]),
+                           segment_ids=[s["segment_id"] for s in job["segments"]])
         except queue.Full:
             session.fail_job(job, "코칭 요청이 밀려 판단을 보류했습니다.")
 
@@ -232,9 +271,14 @@ class PresentationApp:
                     began = time.perf_counter()
                     response = self.coach.evaluate(job)
                     with self.lock:
-                        session.apply(job, response)
+                        current = session.job_is_current(job)
+                        applied = session.apply(job, response) or []
                         session._event("coaching_inference", provider=self.coach.name,
                                        outcome="response_validated",
+                                       result_scope="current" if current else "earlier_revision",
+                                       applied_keypoint_ids=[j["keypoint_id"] for j in applied],
+                                       confirmed_keypoint_ids=[j["keypoint_id"] for j in applied if j["status"] == "explained"],
+                                       queue_wait_ms=max(0.0, began - job.get("queued_at_perf", began)) * 1000,
                                        version=job["version"], revision=job["revision"],
                                        wall_ms=(time.perf_counter() - began) * 1000,
                                        metrics=getattr(self.coach, "last_metrics", {}))
@@ -348,6 +392,8 @@ class PresentationApp:
             device_id = body.get("device_id")
             validate_device_id(device_id)
             with self.lock:
+                if self.start_preparing:
+                    raise ValueError("모델을 준비하는 중입니다. 준비가 끝난 뒤 마이크를 확인해 주세요.")
                 if (self.audio_thread and self.audio_thread.is_alive()) or (self.microphone_test and self.microphone_test["status"] == "testing"):
                     raise ValueError("음성 입력이나 입력 확인을 종료한 뒤 마이크를 시험해 주세요.")
                 self.microphone_test = {"status": "testing"}
@@ -364,10 +410,11 @@ class PresentationApp:
                 raise ValueError("microphone은 bool이어야 합니다.")
             if not isinstance(body.get("voice", False), bool):
                 raise ValueError("voice는 bool이어야 합니다.")
-            with self.lock:
-                return self.start(body.get("microphone", False), body.get("device_id"),
-                                  voice=body.get("voice", False), voice_scope=body.get("voice_scope", self.voice_scope))
+            return self.start(body.get("microphone", False), body.get("device_id"),
+                              voice=body.get("voice", False), voice_scope=body.get("voice_scope", _UNCHANGED))
         with self.lock:
+            if self.start_preparing:
+                raise ValueError("모델을 준비하는 중입니다. 준비가 끝난 뒤 설정을 변경해 주세요.")
             if action == "microphone_retry":
                 from src.microphone import validate_device_id
                 device_id = body.get("device_id")
@@ -430,6 +477,7 @@ class PresentationApp:
 
     def close(self):
         with self.lock:
+            self.closing = True
             if self.session and self.session.status == "running":
                 self.session.stop()
             self.audio_stop.set()

@@ -5,9 +5,11 @@ import math
 import re
 import time
 import uuid
+from difflib import SequenceMatcher
 from pathlib import Path
 from urllib.parse import urlparse
 from urllib.request import Request
+from src.semantic_guards import unfinished_tail
 
 
 def normalized(text):
@@ -145,6 +147,8 @@ class Session:
                        "evidence_segment_ids": []} for s in self.deck["slides"] for p in s["keypoints"]}
         self.pending = {}
         self.revisions = {}
+        self.judgment_revisions = {}
+        self.completed_jobs = set()
         self.seen_segments = set()
         self.alert_keys = set()
         self.last_alert_sec = -100.0
@@ -321,6 +325,70 @@ class Session:
                 self.revisions.get(job["version"], {}).get("revision") == job["revision"] and
                 latest_visit is not None and latest_visit["version"] == job["version"])
 
+    def job_is_relevant(self, job):
+        """An in-flight result may still establish earlier content in this visit.
+
+        Queued requests should continue using job_is_current() so the worker can
+        skip obsolete snapshots instead of spending inference time on them.
+        """
+        latest_visit = next((v for v in reversed(self.visits) if v["slide_id"] == job["slide"]["slide_id"]), None)
+        revision = job.get("revision")
+        return (job["session_id"] == self.session_id and self.status != "ended" and
+                isinstance(revision, int) and not isinstance(revision, bool) and
+                0 < revision <= self.revisions.get(job["version"], {}).get("revision", 0) and
+                latest_visit is not None and latest_visit["version"] == job["version"] and
+                (job["version"], revision) not in self.completed_jobs)
+
+    def _newer_job_speech(self, job):
+        newest_end = max(s["end_sec"] for s in job["segments"])
+        visit = next(v for v in self.visits if v["version"] == job["version"])
+        visit_end = visit["end_sec"] if visit["end_sec"] is not None else float("inf")
+        return [s for s in self.segments if s["end_sec"] > newest_end and
+                s["start_sec"] < visit_end and s["end_sec"] > visit["start_sec"] and
+                job["slide"]["slide_id"] in s["slide_ids"]]
+
+    def _late_confirmation_blocker(self, job, judgment, newer):
+        if not newer or judgment["status"] != "explained":
+            return None
+        if any(s.get("status", "OK") != "OK" for s in newer):
+            return "newer_audio_quality"
+        evidence = [s for s in job["segments"] if s["segment_id"] in judgment["evidence_segment_ids"]]
+        if unfinished_tail(" ".join(s["text"] for s in evidence)):
+            return "newer_utterance_continuation"
+        points = next(s for s in self.deck["slides"] if s["slide_id"] == job["slide"]["slide_id"])["keypoints"]
+        point = next(p for p in points if p["keypoint_id"] == judgment["keypoint_id"])
+        for segment in newer:
+            compact = normalized(segment["text"])
+            if not compact:
+                continue
+            # Explicit corrections may refer to a claim by "that" or "earlier"
+            # rather than repeating the point's words. Hold old positives until
+            # the newer cumulative request has checked that correction.
+            correction_cue = (r"정정|수정|바로잡|취소|철회|잘못|틀렸|사실은|정확히는|아뇨|아닙|아닌|"
+                              r"아니(?:요|라|고|다|었|에요|예요|(?=[\s,.!?]|$))|(?:그렇|맞)지\s*않")
+            if re.search(correction_cue, segment["text"]) or re.search(correction_cue, compact):
+                return "newer_correction_pending"
+            # A paraphrased refutation may share few words with the original
+            # point. Explicit negative grammar must not depend on lexical
+            # similarity. This only holds an old in-flight positive: the newer
+            # cumulative model result still decides whether the negation is a
+            # valid part of a different point (e.g. "외부로 보내지 않고").
+            if (re.search(r"지\s*(?:않|못)|(?:^|\s)안(?:\s+(?=[가-힣])|"
+                         r"(?=하|해|했|합|되|돼|됩|됐|된|될|쓰|썼|쓴|보내|전송|실행|처리|저장|사용|연결|읽|인식|돌))|"
+                         r"못(?=\s*(?:하|해|했|합|한|할|되|된|될|됐|돼|읽|쓰|쓴|썼|인식|처리|실행|사용))|불가능", segment["text"]) or
+                    re.search(r"지(?:않|못)|(?:안|못)(?=하|해|했|합|한|할|되|돼|됩|됐|된|될|쓰|썼|쓴|"
+                              r"보내|전송|실행|처리|저장|사용|연결|읽|인식|돌)|불가능", compact)):
+                return "newer_negation_pending"
+            score = SequenceMatcher(None, normalized(point["text"]), compact).ratio()
+            others = [SequenceMatcher(None, normalized(p["text"]), compact).ratio()
+                      for p in points if p["keypoint_id"] != point["keypoint_id"]]
+            # Repetition or a new description closest to the same point can
+            # change its meaning. A clearly different next point need not make
+            # a completed earlier sentence wait for every later sentence.
+            if score >= .6 and score >= max(others, default=0):
+                return "newer_related_speech_pending"
+        return None
+
     def discard_job(self, job):
         if job["session_id"] == self.session_id and self.revisions.get(job["version"], {}).get("revision") == job["revision"]:
             self.revisions[job["version"]]["pending"] = False
@@ -328,10 +396,15 @@ class Session:
 
     def apply(self, job, response):
         version = job["version"]
-        if not self.job_is_current(job):
+        if not self.job_is_relevant(job):
             self.discard_job(job)
-            return
+            return []
         valid_ids = {p["keypoint_id"] for p in job["slide"]["keypoints"]}
+        captured = {s["segment_id"]: s for s in self.segments}
+        for segment in job["segments"]:
+            original = captured.get(segment.get("segment_id"))
+            if original is None or any(segment.get(field) != original.get(field) for field in ("text", "start_sec", "end_sec")):
+                raise ValueError("요청의 발화 근거가 실제 기록과 다릅니다.")
         evidence_ids = {s["segment_id"] for s in job["segments"]}
         judgments = response.get("judgments") if isinstance(response, dict) else None
         if not isinstance(judgments, list) or len(judgments) != len(valid_ids):
@@ -354,8 +427,24 @@ class Session:
                 raise ValueError("판단 보류 사유 코드가 올바르지 않습니다.")
             if j.get("reason_code") is not None and state != "uncertain":
                 raise ValueError("판단 보류 사유는 판단불가 상태에만 사용할 수 있습니다.")
-        # Validate the entire response before changing state.
+        # Validate the entire response before changing state. An older result
+        # cannot overwrite an evidence-bearing judgment from a newer request.
+        source_revision = (version, job["revision"])
+        newer = self._newer_job_speech(job)
+        applied, deferred = [], []
         for j in judgments:
+            kid = j["keypoint_id"]
+            if source_revision < self.judgment_revisions.get(kid, (0, 0)):
+                deferred.append(kid)
+                self._event("judgment_deferred", keypoint_id=kid, reason="newer_judgment_applied",
+                            version=version, revision=job["revision"])
+                continue
+            blocker = self._late_confirmation_blocker(job, j, newer)
+            if blocker:
+                deferred.append(kid)
+                self._event("judgment_deferred", keypoint_id=kid, reason=blocker,
+                            version=version, revision=job["revision"])
+                continue
             previous = self.states[j["keypoint_id"]]
             if previous["status"] == "explained" and j["status"] == "unconfirmed":
                 continue
@@ -365,24 +454,37 @@ class Session:
             if previous["status"] == "uncertain" and j["status"] == "unconfirmed":
                 continue
             self.states[j["keypoint_id"]] = {k: copy.deepcopy(j[k]) for k in ("status", "reason", "evidence_segment_ids")}
-            self._event("keypoint_judged", slide_id=job["slide"]["slide_id"], version=version, **j)
-        self.revisions[version]["pending"] = False
+            if j["status"] != "unconfirmed" and j.get("reason_code") != "incomplete_tail":
+                self.judgment_revisions[kid] = source_revision
+            applied.append(copy.deepcopy(j))
+            self._event("keypoint_judged", slide_id=job["slide"]["slide_id"], version=version,
+                        revision=job["revision"], provisional=bool(newer), **j)
+        self.completed_jobs.add(source_revision)
+        if self.revisions[version]["revision"] == job["revision"]:
+            self.revisions[version]["pending"] = False
         if all(not p["required"] or self.states[p["keypoint_id"]]["status"] == "explained" for p in job["slide"]["keypoints"]):
             for alert in self.alerts:
                 if alert["key"] == f"missing:{version}" and alert["expires_sec"] > self.elapsed():
                     alert["expires_sec"] = self.elapsed()
                     self._event("alert_retracted", key=alert["key"], reason="late_evidence_confirmed")
-        self._event("coaching_action", action="UNCERTAIN" if any(j["status"] == "uncertain" for j in judgments) else "NO_ACTION", version=version)
+        self._event("coaching_action", action="UNCERTAIN" if any(j["status"] == "uncertain" for j in applied) else "NO_ACTION", version=version)
+        if newer or self.revisions[version]["revision"] != job["revision"]:
+            self._event("judgment_partial", version=version, revision=job["revision"],
+                        latest_revision=self.revisions[version]["revision"],
+                        applied_keypoint_ids=[j["keypoint_id"] for j in applied], deferred_keypoint_ids=deferred)
+        return applied
 
     def fail_job(self, job, message):
-        if not self.job_is_current(job):
+        if not self.job_is_current(job) or (job["version"], job["revision"]) in self.completed_jobs:
             self.discard_job(job)
             return
         self.revisions[job["version"]]["pending"] = False
+        self.completed_jobs.add((job["version"], job["revision"]))
         for p in job["slide"]["keypoints"]:
             # A failed new judgment may hide a retraction of earlier evidence.
             self.states[p["keypoint_id"]].update(status="uncertain", reason=message,
                                                  evidence_segment_ids=[s["segment_id"] for s in job["segments"]])
+            self.judgment_revisions[p["keypoint_id"]] = (job["version"], job["revision"])
         self.issue(message)
 
     def snapshot(self):

@@ -8,6 +8,7 @@ None, leaving their semantic judgment to the coach.
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation, localcontext
 import re
+from difflib import SequenceMatcher
 
 
 _SINO_DIGITS = {char: value for value, char in enumerate("영일이삼사오육칠팔구")}
@@ -226,6 +227,44 @@ def quantity_evidence_supported(expected_text: str, evidence_text: str) -> bool 
         return None
     evidence = {(q.dimension, q.value) for q in _quantities(evidence_text, korean=True)}
     return all((q.dimension, q.value) in evidence for q in expected)
+
+
+def quantity_evidence_present(expected_text: str, evidence_text: str) -> bool | None:
+    """Distinguish missing evidence from a spoken but incompatible quantity.
+
+    This never approves a claim. If a numbered claim cites speech without any
+    supported quantity, that citation cannot retract an earlier valid claim.
+    """
+    expected = _quantities(expected_text, korean=False)
+    if not expected:
+        return None
+    return bool(_quantities(evidence_text, korean=True))
+
+
+def evidence_matches_other_claim(expected_text, evidence_texts, other_texts, aliases=()):
+    """Detect citations that literally describe distinct neighboring points.
+
+    Only reject when every cited utterance nearly reproduces another point and
+    is lexically far from this point (including aliases). Ordinary paraphrases,
+    shared topic statements and unknown evidence remain the model's decision.
+    Whitespace normalization here routes/rejects citations, never confirms them.
+    """
+    def body(text):
+        text = re.sub(r"\s+", "", text.casefold())
+        text = re.sub(r"[.!?。！？]+$", "", text)
+        return re.sub(r"(?:합니다|됩니다|입니다|습니다)$", "", text)
+
+    targets = [body(text) for text in (expected_text, *aliases)]
+    others = [body(text) for text in other_texts]
+    if not evidence_texts or not others:
+        return False
+    for text in evidence_texts:
+        cited = body(text)
+        if not cited or max((SequenceMatcher(None, target, cited).ratio() for target in targets), default=0) >= .4:
+            return False
+        if max((SequenceMatcher(None, other, cited).ratio() for other in others), default=0) < .94:
+            return False
+    return True
 
 
 def unfinished_tail(text: str) -> bool:

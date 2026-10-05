@@ -27,7 +27,7 @@ class PauseContextTests(unittest.TestCase):
         coach = OllamaCoach('fixture')
         coach.model_info = {}
         requests = []
-        response = {'done': True, 'message': {'content': json.dumps({'1': {'s': 1, 'e': [1]}})}}
+        response = {'done': True, 'message': {'content': json.dumps({'P1': {'s': 1, 'e': [1]}})}}
         def request(url, body):
             requests.append(json.loads(body))
             return response
@@ -36,10 +36,14 @@ class PauseContextTests(unittest.TestCase):
                'segments': [{'segment_id': 'a', 'text': '로컬에서', 'start_sec': 0, 'end_sec': 1},
                             {'segment_id': 'b', 'text': '실행합니다', 'start_sec': 1.8, 'end_sec': 3}]}
         result = coach.evaluate(job)
+        self.assertEqual(result['judgments'][0]['keypoint_id'], 'p')
         self.assertEqual(result['judgments'][0]['evidence_segment_ids'], ['a', 'b'])
         data = json.loads(requests[-1]['messages'][-1]['content'])
+        self.assertEqual(data['keypoints'], {'P1': '로컬에서 실행합니다'})
         self.assertEqual(data['utterances'], [{'number': 1, 'text': '로컬에서 실행합니다'}])
-        response['message']['content'] = json.dumps({'1': {'s': 1, 'e': [2]}})
+        self.assertEqual(requests[-1]['format']['required'], ['P1'])
+        self.assertEqual(requests[-1]['format']['properties']['P1']['properties']['e']['items']['enum'], [1])
+        response['message']['content'] = json.dumps({'P1': {'s': 1, 'e': [2]}})
         with self.assertRaises(ValueError):
             coach.evaluate(job)
 

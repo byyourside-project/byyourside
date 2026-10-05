@@ -48,12 +48,20 @@ let deviceList = [
   {id: 1, name: 'USB 마이크', is_default: false},
 ];
 let deferredProbe = null;
+let deferredStart = null, deferredState = null;
 const requests = [];
+const requestTimeouts = [];
 const context = vm.createContext({
   document, console, AbortController, Blob, URL,
-  setTimeout() {return 1;}, clearTimeout() {},
+  setTimeout(callback, milliseconds) {requestTimeouts.push(milliseconds); return 1;}, clearTimeout() {},
   fetch: async (url, options) => {
     requests.push({url, options});
+    if (url === '/api/start' && deferredStart) {
+      return await new Promise(resolve => {deferredStart.resolve = resolve;});
+    }
+    if (url === '/api/state' && deferredState) {
+      return await new Promise(resolve => {deferredState.resolve = resolve;});
+    }
     if (url === '/api/microphone_test' && deferredProbe) {
       return await new Promise(resolve => {deferredProbe.resolve = resolve;});
     }
@@ -214,5 +222,85 @@ function select(value) {
   check(elements.get('pace-timing-note').textContent.includes('내용 확인 지연 4.0초') && !elements.get('pace-timing-note').textContent.includes('35'),
     '오래 쉬었어도 고정된 처리 지연을 근거 경과 시간과 혼동하지 않음');
   check(!requests.some(item => item.url === '/api/voice_test'), '음성 시험 버튼과 안내 문구 회귀 검사에서도 실제 재생을 요청하지 않음');
+  const confirmedDeck = {...deck, slides: [{...deck.slides[0], keypoints: [
+    {keypoint_id: 'first', text: '첫 문장의 설명', required: true},
+    {keypoint_id: 'second', text: '둘째 문장의 설명', required: true},
+  ]}]};
+  const confirmedSession = {...session, deck: confirmedDeck, issues: [], judgment_status: 'evaluating',
+    states: {first: {status: 'explained', reason: '첫 문장 확인', evidence_segment_ids: ['u1']},
+      second: {status: 'unconfirmed', reason: '아직 확인되지 않았습니다.', evidence_segment_ids: []}},
+    segments: [{segment_id: 'u1', text: '첫 문장의 설명', start_sec: 3.09, end_sec: 6.40,
+      status: 'OK', endpoint_reason: 'silence', slide_ids: ['s1'], estimated_feedback_delay_ms: 334.01},
+    {segment_id: 'u2', text: '둘째 문장의 설명', start_sec: 9.07, end_sec: 10.30,
+      status: 'OK', endpoint_reason: 'silence', slide_ids: ['s1'], estimated_feedback_delay_ms: 354.4}],
+    script_progress: {...progress, reliable: false, pace: 'waiting', pace_reason: '최근 발화 판단 대기'}};
+  render({...base, deck: confirmedDeck, session: confirmedSession, audio_input_mode: 'mic', audio_status: 'recording'});
+  check(elements.get('point-count').textContent === '1 / 2 확인' && elements.get('keypoints').children[0].children[2].textContent === '설명됨',
+    '최신 발화를 판단 중이어도 먼저 확인된 문장의 체크와 확인 개수를 유지');
+  check(elements.get('judgment-status').textContent.includes('최신 발화 판단 중') && elements.get('judgment-status').textContent.includes('앞서 확인한'),
+    '새 발화 판단과 앞서 완료된 확인 상태를 구분');
+  check(elements.get('transcripts').children[0].children[1].textContent === '설명 근거 확인' && elements.get('transcripts').children[1].children[1].textContent === '전사 수신',
+    '앞선 발화의 설명 근거와 새 발화의 전사 수신을 구분하여 표시');
+  check(elements.get('transcripts').children[0].children[0].textContent.includes('전사 약 0.33초'),
+    '전사 지연은 모델 판단 지연과 별도로 표시');
+  render({...base, deck: confirmedDeck, session: {...confirmedSession, judgment_status: 'waiting_for_silence'}, audio_input_mode: 'mic'});
+  check(elements.get('point-count').textContent === '1 / 2 확인' && elements.get('judgment-status').textContent.includes('최신 문장 연결 중') && elements.get('script-progress').textContent.includes('설명 확인 50%'),
+    '이어 말한 조각을 모을 때도 앞선 문장 확인과 대본 진행량을 유지');
+  const preparingState = {...base, voice_available: true, start_preparing: true,
+    coach_status: {status: 'preparing', message: '첫 판단 모델을 준비합니다.'}};
+  render(preparingState);
+  check(elements.get('start').disabled && elements.get('microphone-device').disabled && elements.get('microphone-test').disabled && elements.get('input-mode').disabled && elements.get('upload').disabled && elements.get('prepare-script').disabled && elements.get('voice-scope').disabled,
+    '서버 모델 준비 중에는 시작 조건과 마이크·자료·음성 설정을 동결');
+  check(!elements.get('coach-preparation').hidden && elements.get('coach-preparation').textContent.includes('아직 발표를 시작하지 마세요') && elements.get('session-status').textContent === '발표 시작 대기',
+    '세션 생성 전 모델 준비 상태를 명확히 안내');
+  render({...base, coach_status: {status: 'error', message: '로컬 모델 요청이 시간 초과했습니다.'}});
+  check(!elements.get('coach-preparation').hidden && elements.get('coach-preparation').textContent.includes('시간 초과') && elements.get('audio-status').textContent === '모델 준비 실패' && !elements.get('start').disabled,
+    '세션이 없어도 준비 실패 이유를 표시하고 다시 시작할 수 있게 함');
+  render({...base, voice_available: true, voice_scope: 'pace'});
+  deferredStart = {};
+  const startPending = elements.get('start').listeners.click();
+  check(elements.get('input-mode').disabled && !elements.get('coach-preparation').hidden,
+    '발표 시작 클릭 즉시 준비 상태를 표시하고 조작을 동결');
+  responseState = preparingState;
+  const statesBefore = requests.filter(item => item.url === '/api/state').length;
+  await vm.runInContext('poll()', context);
+  check(requests.filter(item => item.url === '/api/state').length === statesBefore + 1 && elements.get('coach-preparation').textContent.includes('모델 준비 중'),
+    '발표 시작 응답을 기다리는 동안에도 상태 조회를 유지');
+  deferredState = {};
+  const oldPoll = vm.runInContext('poll()', context);
+  const startedState = {...base, session: {...session, issues: []}, audio_input_mode: 'mic',
+    audio_status: 'recording', start_preparing: false, coach_status: {status: 'ready', message: '준비 완료'}};
+  deferredStart.resolve({ok: true, json: async () => startedState});
+  await startPending;
+  deferredState.resolve({ok: true, json: async () => preparingState});
+  await oldPoll;
+  check(elements.get('coach-preparation').hidden && elements.get('audio-status').textContent.includes('마이크 입력 수신 중'),
+    '늦게 도착한 준비 상태가 완료된 시작 응답과 새 세션을 덮어쓰지 않음');
+  deferredStart = null;
+  deferredState = null;
+  render({...base, voice_available: true});
+  select('0');
+  const failedState = {...base, voice_available: true, start_preparing: false,
+    coach_status: {status: 'error', message: '모델 준비 실패: 로컬 요청 시간 초과'}};
+  render(failedState);
+  check((elements.get('coach-preparation').textContent.match(/모델 준비 실패/g) || []).length === 1,
+    '서버 오류에 접두어가 포함되어도 모델 준비 실패 문구를 중복하지 않음');
+  render({...base, voice_available: true});
+  deferredStart = {};
+  const failedStart = elements.get('start').listeners.click();
+  check(requestTimeouts.at(-1) === 75000, '발표 시작만 서버의 60초 모델 준비를 기다릴 수 있도록 75초 제한 사용');
+  responseState = preparingState;
+  await vm.runInContext('poll()', context);
+  deferredStart.resolve({ok: false, json: async () => ({error: '모델 준비 실패: 로컬 요청 시간 초과'})});
+  check(await failedStart === false, '모델 준비 요청 실패를 성공한 발표 시작으로 취급하지 않음');
+  deferredStart = null;
+  responseState = failedState;
+  await vm.runInContext('poll()', context);
+  check(!elements.get('start').disabled && !elements.get('input-mode').disabled && !elements.get('upload').disabled && !elements.get('prepare-script').disabled && !elements.get('microphone-device').disabled && !elements.get('voice-scope').disabled,
+    '시작 실패 후 최신 상태를 받으면 준비 잠금을 해제하고 장치·자료 변경과 재시도 허용');
+  await vm.runInContext("api('voice', {enabled:false, scope:'pace'})", context);
+  check(requestTimeouts.at(-1) === 30000, '다른 변경 요청의 30초 제한은 유지');
+  await vm.runInContext("api('state')", context);
+  check(requestTimeouts.at(-1) === 8000, '상태 조회의 8초 제한은 유지');
   console.log(`UI DOM 검증 ${passed}개 통과`);
 })().catch(error => {console.error(error); process.exitCode = 1;});

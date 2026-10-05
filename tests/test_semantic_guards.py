@@ -1,6 +1,7 @@
 import unittest
 
-from src.semantic_guards import quantity_evidence_supported, unfinished_tail
+from src.semantic_guards import (quantity_evidence_supported, quantity_evidence_present,
+                                 evidence_matches_other_claim, unfinished_tail)
 
 
 class QuantityGuardTests(unittest.TestCase):
@@ -151,6 +152,47 @@ class QuantityGuardTests(unittest.TestCase):
         for evidence in ("삼사 초", "십십 초", "영십 초", "일이삼 원", "일만만 원", "삼점십 초"):
             with self.subTest(evidence=evidence):
                 self.assertIs(quantity_evidence_supported("4초와 123원", evidence), False)
+
+
+class IndependentEvidenceTests(unittest.TestCase):
+    def test_missing_quantity_citation_is_distinct_from_spoken_wrong_quantity(self):
+        self.assertIs(quantity_evidence_present("최대 4초 구간입니다.", "음성 인식은 로컬에서 실행합니다."), False)
+        for evidence in ("최대 삼 초입니다.", "최대 사 분입니다.", "4회입니다."):
+            with self.subTest(evidence=evidence):
+                self.assertIs(quantity_evidence_present("최대 4초입니다.", evidence), True)
+        self.assertIsNone(quantity_evidence_present("실행합니다.", "4초입니다."))
+        self.assertIsNone(quantity_evidence_present("4개월입니다.", "4초입니다."))
+
+    def test_literal_other_sentence_cannot_support_unrelated_point(self):
+        source = "발화 를 최대 4초 구간 으로 분할 합니다."
+        self.assertTrue(evidence_matches_other_claim(
+            "불확실한 내용은 판단을 보류합니다.", [source],
+            ["발화를 최대 4초 구간으로 분할합니다."]))
+        self.assertTrue(evidence_matches_other_claim(
+            "실제 발표 음성으로 정확도와 지연을 검증합니다.",
+            ["불 확 실한 내 용은 판단 을 보류 합니다."],
+            ["불확실한 내용은 판단을 보류합니다."]))
+
+    def test_paraphrase_alias_and_shared_topic_remain_semantic_decisions(self):
+        self.assertFalse(evidence_matches_other_claim(
+            "음성 인식은 로컬에서 실행합니다.",
+            ["외부 서버에 녹음을 보낼 필요 없이 기기 안에서 음성을 글로 바꿉니다."],
+            ["발화를 최대 4초 구간으로 분할합니다."]))
+        self.assertFalse(evidence_matches_other_claim(
+            "시간 관리와 핵심 내용 전달을 지원합니다.", ["발표자의 시간과 핵심 내용 설명을 돕습니다."],
+            ["발표자의 시간과 핵심 내용 설명을 돕습니다."],
+            ["발표자의 시간과 핵심 내용 설명을 돕습니다."]))
+        self.assertFalse(evidence_matches_other_claim(
+            "음성 인식은 로컬에서 실행합니다.", ["음성 인식은 외부 서버에서 실행합니다."],
+            ["음성 인식은 외부 서버에서 실행합니다."]))
+
+    def test_a_mixed_valid_citation_or_unknown_text_cannot_be_rejected_by_literal_guard(self):
+        expected = "불확실한 내용은 판단을 보류합니다."
+        other = "발화를 최대 4초 구간으로 분할합니다."
+        self.assertFalse(evidence_matches_other_claim(expected, [other, expected], [other]))
+        self.assertFalse(evidence_matches_other_claim(expected, ["이것은 다른 표현입니다."], [other]))
+        self.assertFalse(evidence_matches_other_claim(expected, [], [other]))
+        self.assertFalse(evidence_matches_other_claim(expected, [other], []))
 
 
 class UnfinishedTailTests(unittest.TestCase):

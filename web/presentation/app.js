@@ -10,7 +10,8 @@ const seconds = n => `${n < 0 ? '+' : ''}${String(Math.floor(Math.abs(n) / 60)).
 function node(tag, text, cls) { const e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (cls) e.className = cls; return e; }
 function error(message) { $('error').textContent = message; $('error').hidden = !message; }
 async function api(action, data) {
-  const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), data === undefined ? 8000 : 30000);
+  const requestTimeout = data === undefined ? 8000 : action === 'start' ? 75000 : 30000;
+  const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), requestTimeout);
   try {
     const response = await fetch('/api/' + action, {signal:controller.signal, ...(data === undefined ? {} : {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)})});
     const result = await response.json();
@@ -34,15 +35,27 @@ async function command(action, data) {
   error('');
   renderMicrophoneState();
   renderVoiceState(false);
+  renderPreparationState();
   try { render(await api(action, data)); return true; } catch (e) { error(e.message); return false; }
-  finally { busy = false; pendingCommand = null; renderMicrophoneState(); renderVoiceState(false); }
+  finally { commandRevision++; busy = false; pendingCommand = null; if (action === 'start' && current) render(current); else {renderMicrophoneState(); renderVoiceState(false); renderPreparationState();} }
+}
+function isStartPreparing() { return current?.start_preparing === true || pendingCommand === 'start'; }
+function renderPreparationState() {
+  const data = current || {}, preparing = isStartPreparing(), active = !!data.session && data.session.status !== 'ended';
+  for (const id of ['script-text','script-duration','prepare-script','input-mode','upload','deck-file']) $(id).disabled = preparing || active;
+  const failed = data.coach_status?.status === 'error' && !preparing;
+  const failureMessage = typeof data.coach_status?.message === 'string' && data.coach_status.message.trim() ? data.coach_status.message.trim() : '준비를 완료하지 못했습니다.';
+  const failureLabel = failureMessage.startsWith('모델 준비 실패') ? failureMessage : `모델 준비 실패: ${failureMessage}`;
+  $('coach-preparation').hidden = !preparing && !failed;
+  $('coach-preparation').classList.toggle('failed', failed);
+  $('coach-preparation').textContent = preparing ? '모델 준비 중 · 아직 발표를 시작하지 마세요. 준비가 끝난 뒤 발표 타이머와 마이크가 시작됩니다.' : failed ? `${failureLabel} 다시 발표 시작을 눌러 재시도할 수 있습니다.` : '';
 }
 function renderVoiceState(syncSelection = true) {
   const data = current || {}, scope = data.voice_scope === 'all' ? 'all' : 'pace';
-  if (syncSelection) {$('voice-enabled').checked = !!data.voice_enabled; $('voice-scope').value = scope;}
-  $('voice-enabled').disabled = !data.voice_available || busy;
-  $('voice-scope').disabled = !data.voice_available || busy;
-  $('voice-test').disabled = data.session?.status !== 'running' || !data.voice_enabled || !data.voice_available || busy;
+  if (syncSelection && !(busy && pendingCommand === 'start')) {$('voice-enabled').checked = !!data.voice_enabled; $('voice-scope').value = scope;}
+  $('voice-enabled').disabled = !data.voice_available || busy || isStartPreparing();
+  $('voice-scope').disabled = !data.voice_available || busy || isStartPreparing();
+  $('voice-test').disabled = data.session?.status !== 'running' || !data.voice_enabled || !data.voice_available || busy || isStartPreparing();
   const scopeLabel = scope === 'pace' ? '빠름·느림만' : '전체 안내';
   $('voice-status').textContent = !data.voice_available ? '이 환경의 로컬 음성 출력을 사용할 수 없습니다.' : data.voice_enabled ? `음성 안내 켜짐 · ${scopeLabel} · 이어폰 출력을 확인하세요.` : `음성 안내 꺼짐 · 선택 범위: ${scopeLabel}`;
   const voiceEventLabels = {voice_queued:'안내 대기',voice_started:'안내 재생 중',voice_completed:'안내 재생 완료',voice_cancelled:'지난 안내 취소',voice_failed:'음성 출력 실패'};
@@ -74,21 +87,22 @@ function renderScriptPace(script, deck) {
 function microphoneDeviceId() { return selectedMicrophone === '' ? null : Number(selectedMicrophone); }
 function renderMicrophoneState() {
   const data = current || {}, active = !!data.session && data.session.status !== 'ended';
+  const preparing = isStartPreparing();
   const running = data.session?.status === 'running', status = data.audio_status;
   const testing = pendingCommand === 'microphone_test' || data.microphone_test?.status === 'testing';
   const selectionUnavailable = selectedMicrophone !== '' && selectedMicrophone === missingMicrophoneId;
   const reconnectable = running && data.audio_input_mode === 'mic' && (status === 'error' || data.audio_done === true || status === 'stopped');
   const usingMicrophone = active ? data.audio_input_mode === 'mic' : $('input-mode').value === 'mic';
   $('microphone-panel').hidden = !usingMicrophone;
-  $('microphone-device').disabled = busy || microphonesRefreshing || testing || (active && !reconnectable);
-  $('microphone-refresh').disabled = busy || microphonesRefreshing || testing || (active && !reconnectable);
-  $('microphone-test').disabled = busy || microphonesRefreshing || testing || active || selectionUnavailable;
+  $('microphone-device').disabled = busy || preparing || microphonesRefreshing || testing || (active && !reconnectable);
+  $('microphone-refresh').disabled = busy || preparing || microphonesRefreshing || testing || (active && !reconnectable);
+  $('microphone-test').disabled = busy || preparing || microphonesRefreshing || testing || active || selectionUnavailable;
   $('microphone-test').textContent = testing ? '입력 확인 중…' : '마이크 입력 확인';
   $('microphone-refresh').textContent = microphonesRefreshing ? '장치 확인 중…' : '장치 새로고침';
   $('microphone-retry').hidden = !reconnectable;
-  $('microphone-retry').disabled = busy || microphonesRefreshing || testing || selectionUnavailable;
+  $('microphone-retry').disabled = busy || preparing || microphonesRefreshing || testing || selectionUnavailable;
   $('microphone-retry').textContent = pendingCommand === 'microphone_retry' ? '다시 연결 중…' : '마이크 다시 연결';
-  $('start').disabled = active || busy || (usingMicrophone && (microphonesRefreshing || testing || selectionUnavailable));
+  $('start').disabled = active || busy || preparing || (usingMicrophone && (microphonesRefreshing || testing || selectionUnavailable));
   const device = data.microphone;
   $('microphone-state').textContent = testing ? '마이크를 열어 입력 확인 중' : selectionUnavailable ? '선택한 장치 연결 해제됨' : active && status === 'loading' ? '음성 모델과 입력 장치 준비 중' : active && status === 'recording' ? (device?.name || '마이크') + ' · 입력 수신 중' : active && status === 'recovering' ? '마이크 입력 유지 · 전사 복구 중' : reconnectable ? '마이크 연결 확인이 필요합니다.' : device ? `${device.name} · ${Math.round(device.sample_rate)} Hz` : '발표 전에 입력을 확인하세요.';
   const level = active && !testing ? data.audio_level : null, test = testing || active || microphoneSelectionChanged ? null : data.microphone_test;
@@ -165,17 +179,15 @@ function render(data) {
   $('script-progress-card').hidden = !script;
   if (script) renderScriptPace(script, deck);
   $('script-plan').textContent = plan ? `대본 ${plan.units.length}구간 · 목표 ${seconds(deck.total_duration_sec)} · 기준 분당 ${Math.round(plan.baseline_units_per_min)}글자 (공백·문장부호 제외)` : '대본과 목표 시간을 넣으면 구간별 예정 시간과 기준 속도를 계산합니다.';
-  for (const id of ['script-text','script-duration','prepare-script']) $(id).disabled = !!s && s.status !== 'ended';
+  renderPreparationState();
   renderVoiceState();
 
   $('connection').textContent = '로컬 연결됨';
   $('connection-dot').style.background = '#5b9470';
-  $('audio-status').textContent = ({idle:'준비',manual:'전사 입력 모드',loading:'모델·마이크 준비 중',recording:'● 마이크 입력 수신 중',recovering:'● 음성 입력 유지 · STT 복구 중',stopped:'음성 입력 종료',error:'마이크 입력 오류'})[data.audio_status] || data.audio_status;
-  $('session-status').textContent = !s ? '발표 준비' : s.status === 'running' && data.audio_status === 'loading' ? '음성 입력 준비 중' : s.status === 'running' && data.audio_input_mode === 'mic' && ['error', 'stopped'].includes(data.audio_status) ? '발표 진행 중 · 음성 입력 중단' : ({running:'발표 진행 중',stopping:'마지막 발화 처리 중',ended:'발표 종료'})[s.status];
+  $('audio-status').textContent = isStartPreparing() ? '모델 준비 중' : data.coach_status?.status === 'error' && (!s || s.status === 'ended') ? '모델 준비 실패' : ({idle:'준비',manual:'전사 입력 모드',loading:'모델·마이크 준비 중',recording:'● 마이크 입력 수신 중',recovering:'● 음성 입력 유지 · STT 복구 중',stopped:'음성 입력 종료',error:'마이크 입력 오류'})[data.audio_status] || data.audio_status;
+  $('session-status').textContent = isStartPreparing() ? '발표 시작 대기' : !s ? '발표 준비' : s.status === 'running' && data.audio_status === 'loading' ? '음성 입력 준비 중' : s.status === 'running' && data.audio_input_mode === 'mic' && ['error', 'stopped'].includes(data.audio_status) ? '발표 진행 중 · 음성 입력 중단' : ({running:'발표 진행 중',stopping:'마지막 발화 처리 중',ended:'발표 종료'})[s.status];
   renderMicrophoneState();
   $('stop').disabled = !running;
-  $('input-mode').disabled = !!s && s.status !== 'ended';
-  $('upload').disabled = !!s && s.status !== 'ended';
   $('export').disabled = !s;
   $('previous').disabled = !running || index === 0;
   $('next').disabled = !running || index === deck.slides.length - 1;
@@ -204,7 +216,9 @@ function render(data) {
     li.append(text,node('span',script?.missing_ids.includes(point.keypoint_id) ? '건너뜀 확인' : statuses[state.status],'point-state')); return li;
   }));
   $('point-count').textContent = `${explained} / ${slide.keypoints.length} 확인`;
-  const processing = s?.judgment_status === 'waiting_for_silence' ? '문장을 모으는 중입니다. 말을 마치고 잠깐 쉬면 판단합니다. ' : s?.judgment_status === 'evaluating' ? '내용 판단 중입니다. 결과를 기다려 주세요. ' : '';
+  const processing = s?.judgment_status === 'waiting_for_silence' ? '최신 발화를 앞 문장과 이어서 확인하고 있습니다. ' : s?.judgment_status === 'evaluating' ? '최신 발화의 내용을 확인하고 있습니다. ' : '';
+  $('judgment-status').textContent = !s ? '발표를 시작하면 설명 여부를 확인합니다.' : `${explained}개 설명 확인` + (s.judgment_status === 'waiting_for_silence' ? ' · 최신 문장 연결 중' : s.judgment_status === 'evaluating' ? ' · 최신 발화 판단 중' : ' · 확인 결과 반영됨');
+  if (processing && explained) $('judgment-status').textContent += ' · 앞서 확인한 항목은 계속 표시합니다.';
   $('coach-note').textContent = processing + (data.coach === 'phrase_baseline' ? '문장 매칭 모드 · 전사 오타나 다른 표현은 놓칠 수 있습니다.' : '의미 판단 모드 · 발화 근거로 확인합니다. 모델 처리에 몇 초 걸릴 수 있습니다.');
   const elapsed = s ? s.elapsed_sec : 0, remaining = s ? s.remaining_sec : deck.total_duration_sec;
   $('remaining').textContent = seconds(remaining); $('remaining').className = 'time' + (remaining < 0 ? ' over' : '');
@@ -216,8 +230,15 @@ function render(data) {
     lastAlerts = alertKey;
   }
   const segments = s ? s.segments : [];
+  const explainedEvidence = new Set(slide.keypoints.filter(point => s?.states[point.keypoint_id]?.status === 'explained').flatMap(point => s.states[point.keypoint_id].evidence_segment_ids || []));
+  const uncertainEvidence = new Set(slide.keypoints.filter(point => s?.states[point.keypoint_id]?.status === 'uncertain').flatMap(point => s.states[point.keypoint_id].evidence_segment_ids || []));
   $('transcripts').replaceChildren(...(segments.length ? segments.map(segment => {
-    const e = node('div',undefined,'utterance'); e.append(node('small',`${seconds(segment.start_sec)}–${seconds(segment.end_sec)} · ${segment.slide_ids.map(id => deck.slides.find(x=>x.slide_id===id)?.title || id).join(' / ')} · ${segment.endpoint_reason}`),node('p',segment.text)); return e;
+    const e = node('div',undefined,'utterance');
+    const received = !segment.status || segment.status === 'OK';
+    const stage = !received ? '전사 오류' : explainedEvidence.has(segment.segment_id) ? '설명 근거 확인' : uncertainEvidence.has(segment.segment_id) ? '내용 확인 필요' : '전사 수신';
+    const endpoint = {silence:'짧은 쉼',hard_max_duration:'이어 말하기',hard_cut_continuation:'이어 말하기',soft_max_duration:'이어 말하기',flush:'마지막 발화'}[segment.endpoint_reason] || segment.endpoint_reason;
+    const delay = Number.isFinite(segment.estimated_feedback_delay_ms) ? ` · 전사 약 ${(segment.estimated_feedback_delay_ms / 1000).toFixed(2)}초` : '';
+    e.append(node('small',`${seconds(segment.start_sec)}–${seconds(segment.end_sec)} · ${segment.slide_ids.map(id => deck.slides.find(x=>x.slide_id===id)?.title || id).join(' / ')} · ${endpoint}${delay}`),node('span',stage,'transcript-stage' + (explainedEvidence.has(segment.segment_id) ? ' confirmed' : !received ? ' failed' : '')),node('p',segment.text)); return e;
   }) : [node('div','확정된 발화가 여기에 표시됩니다.','empty')]));
   const manual = running && data.audio_input_mode === 'manual';
   $('utterance').disabled = !manual; $('submit').disabled = !manual; $('endpoint').disabled = !manual;
@@ -238,7 +259,7 @@ $('utterance-form').addEventListener('submit',async e => {e.preventDefault(); if
 $('upload').addEventListener('click',() => $('deck-file').click());
 $('deck-file').addEventListener('change',async e => {try {const file=e.target.files[0]; if(file) {if(file.size>1048576) throw new Error('자료 파일은 1MB 이하로 준비해 주세요.'); await command('deck',JSON.parse(await file.text()));}} catch(err) {error(err.message);} e.target.value='';});
 $('export').addEventListener('click',async () => {try {const data=await api('export'); const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));const a=node('a');a.href=url;a.download=`presentation_${data.session_id}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);} catch(e) {error(e.message);}});
-async function poll() {const revision = commandRevision; try {if(!busy) {const data = await api('state'); if (!busy && revision === commandRevision) render(data);}} catch(e) {$('connection').textContent='서버 연결 끊김';$('connection-dot').style.background='#c17960';} finally {setTimeout(poll,200);}}
+async function poll() {const revision = commandRevision; try {if(!busy || pendingCommand === 'start') {const data = await api('state'); if (revision === commandRevision && (!busy || pendingCommand === 'start')) render(data);}} catch(e) {$('connection').textContent='서버 연결 끊김';$('connection-dot').style.background='#c17960';} finally {setTimeout(poll,200);}}
 poll();
 refreshMicrophones();
 
