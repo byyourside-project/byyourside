@@ -25,7 +25,8 @@ def prepare_script(text, duration, title="대본 발표"):
         start = end
         end += duration * weight / total
         plan.append({"keypoint_id": point["keypoint_id"], "text": point["text"], "units": weight,
-                     "planned_start_sec": start, "planned_end_sec": end})
+                     "planned_start_sec": start, "planned_end_sec": end,
+                     "planned_duration_sec": end - start})
     deck["script_plan"] = {"version": 1, "unit": "공백·문장부호 제외 글자", "total_units": total,
                            "baseline_units_per_min": total / duration * 60, "units": plan}
     return deck
@@ -39,6 +40,10 @@ class ScriptSession(Session):
         # established it. Model latency and re-reading never move this clock.
         self.confirmed_audio_ends = {}
         self.confirmed_judgment_delays = {}
+        # Display measurements are separate from conservative voice estimates.
+        # They retain the first real judgment timestamp and an auditable choice
+        # of speech endpoint without changing the semantic evidence itself.
+        self.sentence_timings = {}
         self.last_confirmed_audio_end = None
         self.latest_audio_end = None
         self.pace_input_uncertain = False
@@ -99,6 +104,7 @@ class ScriptSession(Session):
                 if ends:
                     self.confirmed_audio_ends[kid] = max(ends)
                     self.confirmed_judgment_delays[kid] = max(0.0, self.elapsed() - max(ends))
+        self._record_sentence_timings(applied, job, valid)
         self.last_confirmed_audio_end = max(self.confirmed_audio_ends.values(), default=None)
         self._review_script()
         self._update_pace()
@@ -106,10 +112,134 @@ class ScriptSession(Session):
 
     def issue(self, message):
         super().issue(message)
+        self._prune_sentence_timings()
         # Loss/error evidence invalidates a gap immediately, including alerts
         # that were queued before the quality issue arrived.
         self._review_script()
         self._hold_pace("record_quality_issue", reset=True)
+
+    def _prune_sentence_timings(self):
+        for kid in list(self.sentence_timings):
+            if self.states[kid]["status"] != "explained":
+                del self.sentence_timings[kid]
+
+    def _record_sentence_timings(self, applied, job, valid):
+        self._prune_sentence_timings()
+        completed_at = max(0.0, self.clock() - self.origin)
+        request_end = max(s["end_sec"] for s in job["segments"])
+        new_ids = {j["keypoint_id"] for j in applied if j["status"] == "explained"}
+        earlier = []
+        for point in self.plan["units"]:
+            kid = point["keypoint_id"]
+            if kid in new_ids and kid not in self.sentence_timings:
+                ends = [valid[e]["end_sec"] for e in self.states[kid]["evidence_segment_ids"] if e in valid]
+                if ends:
+                    evidence_end = max(ends)
+                    adjusted_end = evidence_end
+                    estimated = bool(earlier) and evidence_end < max(earlier) - .001
+                    if estimated:
+                        # A later script point can be matched against older
+                        # context by the model. Preserve that semantic source,
+                        # but do not report all that time as inference latency.
+                        # Use this request's endpoint, never newer live speech.
+                        adjusted_end = request_end
+                    self.sentence_timings[kid] = {
+                        "completed_at_sec": completed_at,
+                        "evidence_audio_end_sec": evidence_end,
+                        "processing_delay_sec": max(0.0, completed_at - adjusted_end),
+                        "adjusted_completed_at_sec": adjusted_end,
+                        "timing_basis": "request_speech_end" if estimated else "evidence_speech_end",
+                        "timing_estimated": estimated,
+                    }
+            timing = self.sentence_timings.get(kid)
+            if timing is not None:
+                earlier.append(timing["adjusted_completed_at_sec"])
+
+    @staticmethod
+    def _classify_display_ratio(ratio):
+        if ratio is None or ratio <= 0:
+            return "waiting"
+        return "fast" if ratio > 1.25 + 1e-9 else "slow" if ratio < .75 - 1e-9 else "on_plan"
+
+    def _sentence_timing_rows(self):
+        rows = []
+        previous = None
+        for index,point in enumerate(self.plan["units"]):
+            kid = point["keypoint_id"]
+            timing = self.sentence_timings.get(kid) if self.states[kid]["status"] == "explained" else None
+            row = {"completed_at_sec": None, "evidence_audio_end_sec": None,
+                   "processing_delay_sec": None, "adjusted_completed_at_sec": None,
+                   "actual_duration_sec": None, "sentence_ratio": None, "sentence_pace": "waiting",
+                   "timing_basis": None, "timing_estimated": False}
+            if timing is not None:
+                row.update(timing)
+                start = 0.0 if index == 0 else previous
+                if start is not None:
+                    actual = timing["adjusted_completed_at_sec"] - start
+                    if actual >= 0:
+                        row["actual_duration_sec"] = actual
+                        row["sentence_ratio"] = point["planned_duration_sec"] / actual if actual > 0 else None
+                        row["sentence_pace"] = self._classify_display_ratio(row["sentence_ratio"])
+            rows.append(row)
+            previous = timing["adjusted_completed_at_sec"] if timing is not None else None
+        return rows
+
+    def _display_pace(self, amount, position, planned_sec, processing, passed_unresolved, quality_problem):
+        points = self.plan["units"]
+        kid = points[position]["keypoint_id"] if position >= 0 else None
+        timing = self.sentence_timings.get(kid)
+        measured = timing["adjusted_completed_at_sec"] if timing else None
+        ratio = planned_sec / measured if measured and amount else None
+        fraction = amount / self.plan["total_units"]
+        age = max(0.0, self.clock() - self.origin - measured) if measured is not None else None
+        timings = [self.sentence_timings.get(p["keypoint_id"]) for p in points[:position+1]]
+        ordered = all(t is not None for t in timings) and all(
+            b["adjusted_completed_at_sec"] >= a["adjusted_completed_at_sec"]
+            for a,b in zip(timings, timings[1:]))
+        uncertain = any(state["status"] == "uncertain" for state in self.states.values())
+        reliable = bool(timing and measured > 0 and not quality_problem and not passed_unresolved and
+                        not uncertain and ordered)
+        pace = self._classify_display_ratio(ratio) if reliable else "waiting"
+        if quality_problem:
+            reason_code = "record_quality_issue"
+            reason = "입력·처리 오류가 있어 속도 판단을 보류합니다."
+        elif uncertain:
+            reason_code = "uncertain_judgment"
+            reason = "내용 판단이 불확실한 구간이 있어 속도 판단을 보류합니다."
+        elif passed_unresolved:
+            reason_code = "unresolved_script_gap"
+            reason = "앞선 대본에 미확인 구간이 있어 속도 판단을 보류합니다."
+        elif not timing:
+            reason_code = "no_confirmed_sentence"
+            reason = "확인된 대본 문장이 없어 속도 판단을 기다립니다."
+        elif not reliable:
+            reason_code = "unordered_completion_times"
+            reason = "문장 완료 순서를 확인할 수 없어 속도 판단을 보류합니다."
+        elif self.status == "ended":
+            reason_code = "final_snapshot"
+            reason = "발표 종료 시 마지막으로 확인된 속도입니다."
+        elif processing:
+            reason_code = "processing_pending"
+            reason = "새 발화를 처리하는 동안 마지막으로 확인된 속도를 유지합니다."
+        elif age is not None and age > 15:
+            reason_code = "stale_snapshot"
+            reason = "마지막 확인 시점의 속도입니다. 새로 확인된 발화가 없습니다."
+        else:
+            reason_code = "confirmed_pace"
+            reason = {"fast": "목표 발표 시간보다 빠르게 진행하고 있습니다.",
+                      "slow": "목표 발표 시간보다 느리게 진행하고 있습니다.",
+                      "on_plan": "목표 발표 시간에 맞는 속도로 진행하고 있습니다."}[pace]
+        return {"pace": pace, "reliable": reliable, "reason": reason, "reason_code": reason_code,
+                "latest_keypoint_id": kid,
+                "planned_elapsed_sec": planned_sec, "measured_elapsed_sec": measured,
+                "ratio": ratio, "estimated_total_sec": measured / fraction if measured and fraction else None,
+                "observed_units_per_min": amount / measured * 60 if measured else None,
+                "processing_delay_sec": timing["processing_delay_sec"] if timing else None,
+                "completed_at_sec": timing["completed_at_sec"] if timing else None,
+                "evidence_audio_end_sec": timing["evidence_audio_end_sec"] if timing else None,
+                "timing_basis": timing["timing_basis"] if timing else None,
+                "timing_estimated": timing["timing_estimated"] if timing else False,
+                "evidence_age_sec": age, "pending": processing, "final": self.status == "ended"}
 
     def _hold_pace(self, reason, reset=False):
         self.pace = "waiting"
@@ -203,6 +333,8 @@ class ScriptSession(Session):
         else:
             reason = "목표 발표 시간보다 빠르게 진행하고 있습니다." if self.pace == "fast" else "목표 발표 시간보다 느리게 진행하고 있습니다."
         reliable = recent and not quality_problem and not processing and not passed_unresolved and not latest_unresolved
+        timing_rows = self._sentence_timing_rows()
+        display = self._display_pace(amount, position, planned_sec, processing, passed_unresolved, quality_problem)
         return {"confirmed_units": amount, "total_units": self.plan["total_units"],
                 "fraction": amount / self.plan["total_units"], "baseline_units_per_min": self.plan["baseline_units_per_min"],
                 "observed_units_per_min": amount / measured_sec * 60 if measured_sec else None,
@@ -211,8 +343,9 @@ class ScriptSession(Session):
                 "measured_elapsed_sec": measured_sec, "plan_total_duration_sec": self.deck["total_duration_sec"],
                 "processing_delay_sec": processing_delay, "evidence_age_sec": evidence_age,
                 "pace": self.pace, "pace_reason": reason, "missing_ids": self.missing_ids,
+                "display_pace": display,
                 "position_index": position, "next_text": points[position+1]["text"] if position+1 < len(points) else None,
-                "units": [{**p, **self.states[p["keypoint_id"]]} for p in points]}
+                "units": [{**p, **self.states[p["keypoint_id"]], **timing} for p,timing in zip(points,timing_rows)]}
 
     def tick(self):
         super().tick()

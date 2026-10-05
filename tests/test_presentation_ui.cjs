@@ -302,5 +302,72 @@ function select(value) {
   check(requestTimeouts.at(-1) === 30000, '다른 변경 요청의 30초 제한은 유지');
   await vm.runInContext("api('state')", context);
   check(requestTimeouts.at(-1) === 8000, '상태 조회의 8초 제한은 유지');
+  const timedUnits = [
+    {keypoint_id: 'one', text: '대본 전문을 표에 반복하지 않습니다.', status: 'explained',
+      planned_duration_sec: 20, completed_at_sec: 12.4, processing_delay_sec: 2.4,
+      adjusted_completed_at_sec: 10, actual_duration_sec: 10, sentence_ratio: 2, sentence_pace: 'fast', timing_estimated: false},
+    {keypoint_id: 'two', text: '둘째 문장입니다.', status: 'unconfirmed', planned_duration_sec: 40},
+  ];
+  const firstDisplay = {pace: 'fast', reliable: true, reason: '첫 문장의 확인 시점에서 계산했습니다.',
+    latest_keypoint_id: 'one', planned_elapsed_sec: 20, measured_elapsed_sec: 10,
+    ratio: 2, estimated_total_sec: 30, processing_delay_sec: 2.4, completed_at_sec: 12.4,
+    observed_units_per_min: 200, pending: false, final: false};
+  const immediateProgress = {...progress, pace: 'waiting', reliable: false, units: timedUnits, display_pace: firstDisplay};
+  render(withPace(immediateProgress));
+  check(elements.get('script-pace-state').textContent === '빠름' && elements.get('pace-measured').textContent === '10.0초' && elements.get('pace-ratio').textContent === '계획의 200%',
+    '첫 문장 10초 확인 직후 voice 안정화 대기와 별도로 화면 속도를 표시');
+  check(elements.get('pace-planned').textContent === '20.0초' && elements.get('pace-latest').textContent === '1번 · 빠름' && elements.get('pace-estimated').textContent === '00:30',
+    '전체 누적 배정 시간과 최근 문장 속도 기준을 구분');
+  const firstRow = elements.get('sentence-timing-rows').children[0];
+  check(firstRow.children[1].textContent === '20.0초' && firstRow.children[2].textContent === '10.0초' && firstRow.children[3].children[0].textContent === '빠름' && firstRow.children[4].textContent === '2.4초',
+    '문장별 배정·실제 소요·속도·제외 지연을 행으로 표시');
+  check(elements.get('pace-timing-note').textContent.includes('12.4초 − 처리 지연 2.4초 = 보정 시각 10.0초'),
+    '완료 표시 시각에서 실제 처리 지연을 뺀 보정 식을 표시');
+  check(!JSON.stringify(elements.get('sentence-timing-rows').children).includes(timedUnits[0].text),
+    '문장 시간 표에 대본 전문을 중복하지 않음');
+  render(withPace({...immediateProgress, display_pace: {...firstDisplay, pending: true}}));
+  check(elements.get('script-pace-state').textContent === '빠름' && elements.get('pace-ratio').textContent === '계획의 200%' && elements.get('pace-status-note').textContent.includes('마지막 확인의 수치'),
+    '다음 발화 처리 중에도 마지막 확인의 속도와 수치를 유지');
+  const endedTiming = withPace({...immediateProgress, display_pace: {...firstDisplay, final: true}});
+  endedTiming.session.status = 'ended';
+  render(endedTiming);
+  check(elements.get('script-pace-state').textContent === '빠름' && elements.get('pace-ratio').textContent === '계획의 200%' && elements.get('pace-status-note').textContent.includes('최종 확인'),
+    '종료 후에도 최종 확인 속도와 시간 수치를 유지');
+  for (const delay of [2, 4]) {
+    render(withPace({...immediateProgress, units: [{...timedUnits[0], completed_at_sec: 10 + delay, processing_delay_sec: delay}, timedUnits[1]],
+      display_pace: {...firstDisplay, completed_at_sec: 10 + delay, processing_delay_sec: delay}}));
+    check(elements.get('pace-measured').textContent === '10.0초' && elements.get('pace-timing-note').textContent.includes(`처리 지연 ${delay.toFixed(1)}초 = 보정 시각 10.0초`),
+      `실제 ${delay}초 처리 지연을 적용하며 고정 지연을 가정하지 않음`);
+  }
+  render(withPace({...immediateProgress, display_pace: {...firstDisplay, reliable: false, pace: 'waiting', reason: '앞선 대본의 누락을 확인해야 합니다.'}}));
+  check(elements.get('script-pace-state').textContent === '판단 보류' && elements.get('pace-measured').textContent === '판단 보류' && elements.get('pace-ratio').textContent === '판단 보류' && !elements.get('pace-timing-note').textContent.includes('12.4초'),
+    '대본 사이 누락이 있으면 전체 속도와 보정 수치를 확정하지 않음');
+  render(withPace({...immediateProgress, display_pace: {...firstDisplay, reliable: false, pace: 'waiting', final: true, reason: '입력 오류가 있어 판단을 보류합니다.'}}));
+  check(elements.get('script-pace-state').textContent === '판단 보류' && elements.get('pace-estimated').textContent === '판단 보류',
+    '오류가 있는 종료 결과는 과거 빠름·예상 시간으로 잘못 표시하지 않음');
+  render(withPace({...immediateProgress, units: [{...timedUnits[0], status: 'uncertain'}, timedUnits[1]],
+    display_pace: {...firstDisplay, reliable: false, pace: 'waiting', reason: '정정 응답을 확인해야 합니다.'}}));
+  check(elements.get('sentence-timing-rows').children[0].children[2].textContent === '—' && elements.get('sentence-timing-rows').children[0].children[3].children[0].textContent === '판단 보류' && elements.get('sentence-timing-rows').children[0].children[4].textContent === '—',
+    '정정·잘못된 응답 후 남아 있는 문장 시간 메타데이터를 완료 기록처럼 표시하지 않음');
+  render(withPace({...immediateProgress, units: [{...timedUnits[0], timing_estimated: true}, timedUnits[1]]}));
+  check(elements.get('pace-timing-note').textContent.includes('시각 추정') && elements.get('sentence-timing-rows').children[0].children[3].children[1].textContent === '시각 추정',
+    '오래된 근거 대신 보정한 완료 시각은 추정임을 표시');
+  render(withPace({...immediateProgress, display_pace: {...firstDisplay, reliable: false, pace: 'waiting', latest_keypoint_id: null, measured_elapsed_sec: null, ratio: null, reason: '첫 문장을 확인하고 있습니다.'}}));
+  check(elements.get('script-pace-state').textContent === '첫 문장 확인 대기' && elements.get('pace-ratio').textContent === '판단 보류',
+    '첫 확인 전에는 숫자를 확정하지 않고 첫 문장 대기를 표시');
+  render(withPace({...immediateProgress, display_pace: {...firstDisplay, reliable: false, pace: 'waiting', latest_keypoint_id: null, measured_elapsed_sec: null, reason: '입력 오류가 있어 보류합니다.'}}));
+  check(elements.get('script-pace-state').textContent === '판단 보류', '첫 문장 전 오류도 단순 대기와 구분');
+  render(withPace({...immediateProgress, display_pace: {...firstDisplay, reliable: false, pace: 'waiting', latest_keypoint_id: null,
+    measured_elapsed_sec: null, reason_code: 'uncertain_judgment', reason: '전사를 확인하고 있습니다.'}}));
+  check(elements.get('script-pace-state').textContent === '판단 보류', '보류 상태 코드를 사용하여 문구 변화에도 오류를 첫 문장 대기로 오인하지 않음');
+  render(withPace({...immediateProgress, display_pace: {...firstDisplay, reliable: false, pace: 'waiting', latest_keypoint_id: null,
+    measured_elapsed_sec: null, reason_code: 'no_confirmed_sentence', reason: '아직 완료 구간을 받지 못했습니다.'}}));
+  check(elements.get('script-pace-state').textContent === '첫 문장 확인 대기', '첫 문장 대기 상태 코드로 사용자 문구와 독립적으로 상태 표시');
+  for (const [pace, label] of [['on_plan','적당함'], ['slow','느림']]) {
+    render(withPace({...immediateProgress, display_pace: {...firstDisplay, pace}}));
+    check(elements.get('script-pace-state').textContent === label, `즉시 화면 속도 ${label} 상태를 표시`);
+  }
+  check(elements.get('voice-enabled').checked === false && !requests.some(item => item.url === '/api/voice_test'),
+    '즉시 속도 표시와 시간 표 검증 중에도 음성을 자동으로 켜거나 재생하지 않음');
   console.log(`UI DOM 검증 ${passed}개 통과`);
 })().catch(error => {console.error(error); process.exitCode = 1;});

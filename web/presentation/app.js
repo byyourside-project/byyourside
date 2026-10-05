@@ -67,22 +67,51 @@ function renderVoiceState(syncSelection = true) {
   }
 }
 function renderScriptPace(script, deck) {
-  const reliable = script.reliable === true;
-  const effectivePace = reliable ? script.pace : 'waiting';
-  const pace = {waiting:'판단 보류',fast:'계획보다 빠름',slow:'계획보다 느림',on_plan:'계획 내'}[effectivePace] || '판단 보류';
-  const measured = Number.isFinite(script.measured_elapsed_sec) ? script.measured_elapsed_sec : null;
+  const display = script.display_pace && typeof script.display_pace === 'object' && !Array.isArray(script.display_pace) ? script.display_pace : null;
+  const source = display || script, reliable = source.reliable === true;
+  const effectivePace = reliable ? source.pace : 'waiting';
+  const firstWaiting = display && (source.reason_code ? source.reason_code === 'no_confirmed_sentence' : !source.latest_keypoint_id && !/오류|손실|불확실|누락|보류/.test(source.reason || ''));
+  const pace = display ? ({fast:'빠름',slow:'느림',on_plan:'적당함'}[effectivePace] || (firstWaiting ? '첫 문장 확인 대기' : '판단 보류')) : ({waiting:'판단 보류',fast:'계획보다 빠름',slow:'계획보다 느림',on_plan:'계획 내'}[effectivePace] || '판단 보류');
+  const measured = Number.isFinite(source.measured_elapsed_sec) ? source.measured_elapsed_sec : null;
   const displayMeasurements = reliable && measured !== null && measured > 0;
+  const latest = display ? script.units.find(unit => unit.keypoint_id === source.latest_keypoint_id) : null;
+  const latestIndex = latest ? script.units.indexOf(latest) : -1;
+  const duration = value => Number.isFinite(value) && value >= 0 ? `${value.toFixed(1)}초` : '—';
+  const sentenceLabels = {fast:'빠름',on_plan:'적당함',slow:'느림'};
+  const validSentence = unit => unit?.status === 'explained' && Number.isFinite(unit.actual_duration_sec) && unit.actual_duration_sec >= 0 && Number.isFinite(unit.sentence_ratio) && unit.sentence_ratio > 0 && !!sentenceLabels[unit.sentence_pace];
   $('script-pace-state').textContent = pace;
   $('script-pace-state').className = 'pace-status ' + (['fast','slow','on_plan'].includes(effectivePace) ? effectivePace : 'waiting');
   $('script-progress').textContent = `현재 확인 위치 ${script.position_index+1}/${script.units.length} · 설명 확인 ${Math.round(script.fraction*100)}% · 건너뛴 구간 확인 ${script.missing_ids.length}개` + (script.next_text ? ` · 다음 예정: ${script.next_text}` : ' · 마지막 구간까지 확인');
   $('pace-target').textContent = seconds(Number.isFinite(script.plan_total_duration_sec) ? script.plan_total_duration_sec : deck.total_duration_sec);
-  $('pace-measured').textContent = measured !== null && measured > 0 ? seconds(measured) : '확인 대기';
+  $('pace-status-note').hidden = !display || (!source.pending && !source.final);
+  $('pace-status-note').textContent = source.final ? '발표 종료 · 최종 확인 결과입니다.' : source.pending ? (reliable ? '다음 발화 확인 중 · 마지막 확인의 수치를 표시합니다.' : '다음 발화 확인 중 · 신뢰할 수 있는 속도 근거를 기다립니다.') : '';
+  $('pace-measured-label').textContent = display ? '지연 제외 누적 시간' : '확인된 발화 종료';
+  $('pace-measured').textContent = display ? (displayMeasurements ? duration(measured) : '판단 보류') : measured !== null && measured > 0 ? seconds(measured) : '확인 대기';
+  $('pace-planned-metric').hidden = !display;
+  $('pace-planned').textContent = displayMeasurements ? duration(source.planned_elapsed_sec) : '판단 보류';
+  $('pace-baseline-metric').hidden = !!display;
+  $('pace-observed-metric').hidden = !!display;
+  $('pace-latest-metric').hidden = !display;
+  $('pace-latest').textContent = displayMeasurements && validSentence(latest) ? `${latestIndex+1}번 · ${sentenceLabels[latest.sentence_pace]}` : '확인 대기';
   $('pace-baseline').textContent = Number.isFinite(script.baseline_units_per_min) ? `${Math.round(script.baseline_units_per_min)}글자/분` : '계획 준비 중';
-  $('pace-observed').textContent = displayMeasurements && Number.isFinite(script.observed_units_per_min) ? `${Math.round(script.observed_units_per_min)}글자/분` : '판단 보류';
-  $('pace-ratio').textContent = displayMeasurements && Number.isFinite(script.ratio) ? `계획의 ${Math.round(script.ratio*100)}%` : '판단 보류';
-  $('pace-estimated').textContent = displayMeasurements && ['fast','slow','on_plan'].includes(effectivePace) && Number.isFinite(script.estimated_total_sec) && script.estimated_total_sec > 0 ? seconds(script.estimated_total_sec) : '판단 보류';
-  $('pace-reason').textContent = script.pace_reason || (script.pace === 'waiting' || !reliable ? '대본 진행을 확인한 뒤 속도를 안내합니다.' : '확인된 대본 진행량을 목표 시간과 비교했습니다.');
-  $('pace-timing-note').textContent = Number.isFinite(script.processing_delay_sec) && script.processing_delay_sec > 0 ? `최근 내용 확인 지연 ${script.processing_delay_sec.toFixed(1)}초 · 이 지연은 속도 계산에서 제외합니다.` : '내용 판단 지연은 속도 계산에서 제외합니다.';
+  $('pace-observed').textContent = displayMeasurements && Number.isFinite(source.observed_units_per_min) ? `${Math.round(source.observed_units_per_min)}글자/분` : '판단 보류';
+  $('pace-ratio').textContent = displayMeasurements && Number.isFinite(source.ratio) ? `계획의 ${Math.round(source.ratio*100)}%` : '판단 보류';
+  $('pace-estimated').textContent = displayMeasurements && ['fast','slow','on_plan'].includes(effectivePace) && Number.isFinite(source.estimated_total_sec) && source.estimated_total_sec > 0 ? seconds(source.estimated_total_sec) : '판단 보류';
+  $('pace-reason').textContent = (display ? source.reason : script.pace_reason) || (effectivePace === 'waiting' ? '대본 진행을 확인한 뒤 속도를 안내합니다.' : '확인된 대본 진행량을 목표 시간과 비교했습니다.');
+  const timingValid = displayMeasurements && validSentence(latest) && [latest.completed_at_sec, latest.processing_delay_sec, latest.adjusted_completed_at_sec].every(value => Number.isFinite(value) && value >= 0) && Math.abs(latest.completed_at_sec - latest.processing_delay_sec - latest.adjusted_completed_at_sec) < .05;
+  $('pace-timing-note').textContent = timingValid ? `${latestIndex+1}번 문장: 완료 표시 ${duration(latest.completed_at_sec)} − 처리 지연 ${duration(latest.processing_delay_sec)} = 보정 시각 ${duration(latest.adjusted_completed_at_sec)}${latest.timing_estimated ? ' · 시각 추정' : ''}` : Number.isFinite(source.processing_delay_sec) && source.processing_delay_sec > 0 && !display ? `최근 내용 확인 지연 ${source.processing_delay_sec.toFixed(1)}초 · 이 지연은 속도 계산에서 제외합니다.` : '내용 판단 지연은 속도 계산에서 제외합니다.';
+  $('sentence-timing').hidden = !display;
+  $('sentence-timing-rows').replaceChildren(...(display ? script.units.map((unit, index) => {
+    const row = node('tr', undefined, unit.keypoint_id === source.latest_keypoint_id ? 'latest' : '');
+    const valid = validSentence(unit);
+    row.append(node('th', `${index+1}번`), node('td', duration(unit.planned_duration_sec)), node('td', valid ? duration(unit.actual_duration_sec) : '—'));
+    const status = node('td');
+    status.append(node('span', valid ? sentenceLabels[unit.sentence_pace] : unit.status === 'uncertain' ? '판단 보류' : unit.status === 'explained' ? '시간 확인 대기' : '미확인', 'sentence-pace ' + (valid ? unit.sentence_pace : 'waiting')));
+    if (valid && unit.timing_estimated) status.append(node('small', '시각 추정', 'timing-estimated'));
+    row.append(status, node('td', valid ? duration(unit.processing_delay_sec) : '—'));
+    return row;
+  }) : []));
+  $('pace-explanation').textContent = display ? '전체 계획 대비 속도는 확인한 문장들의 누적 배정 시간과 지연을 뺀 완료 시각을 비교합니다. 문장 속도는 해당 문장의 배정 시간과 실제 소요를 비교합니다. 음성 안내는 별도의 안정화 조건을 적용합니다.' : '계획 속도는 100%입니다. 실제 발음 속도와 다르며, 추적이 불확실하면 판단을 보류합니다.';
 }
 function microphoneDeviceId() { return selectedMicrophone === '' ? null : Number(selectedMicrophone); }
 function renderMicrophoneState() {

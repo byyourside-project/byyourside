@@ -26,7 +26,27 @@
     <section class="center">
       <div class="card focus"><div class="focus-top"><span id="slide-count" class="pill"></span><span id="session-status" class="muted">발표 준비</span></div><h2 id="slide-title"></h2><div class="focus-footer"><span id="slide-target" class="muted"></span><div><button id="previous" class="secondary" disabled>← 이전</button><button id="next" class="primary" disabled>다음 →</button></div></div></div>
       <div class="card keypoints"><div class="section-title"><h2>핵심 설명 항목</h2><span id="point-count" class="muted"></span></div><p id="judgment-status" class="judgment-status" role="status" aria-live="polite"></p><ul id="keypoints"></ul><p id="coach-note" class="note"></p></div>
-      <div id="script-progress-card" class="card" hidden><div class="section-title"><h2>목표 시간과 진행 속도</h2><span id="script-pace-state" class="pace-status waiting">판단 보류</span></div><p id="script-progress"></p><dl class="pace-metrics"><div><dt>목표 시간</dt><dd id="pace-target">—</dd></div><div><dt>확인된 발화 종료</dt><dd id="pace-measured">—</dd></div><div><dt>계획 기준 속도</dt><dd id="pace-baseline">—</dd></div><div><dt>현재 확인 속도</dt><dd id="pace-observed">—</dd></div><div><dt>계획 대비 속도</dt><dd id="pace-ratio">—</dd></div><div><dt>예상 전체 시간</dt><dd id="pace-estimated">—</dd></div></dl><p id="pace-reason" class="pace-reason" role="status" aria-live="polite"></p><p id="pace-timing-note" class="note"></p><p class="note">속도는 대본의 확인된 진행량과 실제 발화 종료 시점으로 계산합니다. 계획 속도는 100%이며, 실제 발음 속도와 다릅니다. 추적이 불확실하면 안내를 보류합니다.</p></div>
+      <div id="script-progress-card" class="card" hidden>
+        <div class="section-title"><h2>전체 목표 대비 진행 속도</h2><span id="script-pace-state" class="pace-status waiting">첫 문장 확인 대기</span></div>
+        <p id="script-progress"></p><p id="pace-status-note" class="pace-status-note"></p>
+        <dl class="pace-metrics">
+          <div><dt>전체 목표 시간</dt><dd id="pace-target">—</dd></div>
+          <div><dt id="pace-measured-label">지연 제외 누적 시간</dt><dd id="pace-measured">—</dd></div>
+          <div id="pace-planned-metric" hidden><dt>확인 문장 누적 배정</dt><dd id="pace-planned">—</dd></div>
+          <div id="pace-baseline-metric"><dt>계획 기준 속도</dt><dd id="pace-baseline">—</dd></div>
+          <div id="pace-observed-metric"><dt>현재 확인 속도</dt><dd id="pace-observed">—</dd></div>
+          <div><dt>전체 계획 대비 속도</dt><dd id="pace-ratio">—</dd></div>
+          <div><dt>예상 전체 시간</dt><dd id="pace-estimated">—</dd></div>
+          <div id="pace-latest-metric" hidden><dt>최근 완료 문장의 속도</dt><dd id="pace-latest">—</dd></div>
+        </dl>
+        <p id="pace-reason" class="pace-reason" role="status" aria-live="polite"></p><p id="pace-timing-note" class="note"></p>
+        <section id="sentence-timing" class="sentence-timing" aria-labelledby="sentence-timing-heading" hidden>
+          <h3 id="sentence-timing-heading">문장별 배정 시간과 실제 소요</h3>
+          <div class="sentence-timing-wrap"><table><thead><tr><th scope="col">문장</th><th scope="col">배정</th><th scope="col">실제 소요</th><th scope="col">문장 속도</th><th scope="col">제외 지연</th></tr></thead><tbody id="sentence-timing-rows"></tbody></table></div>
+          <p class="note">문장별 값은 해당 문장을 확인한 당시의 기록입니다. 대본 내용은 위 핵심 설명 항목에서 확인하세요.</p>
+        </section>
+        <p id="pace-explanation" class="note">계획 속도는 100%입니다. 실제 발음 속도와 다르며, 추적이 불확실하면 판단을 보류합니다.</p>
+      </div>
       <div id="alert-region" role="status" aria-live="polite"></div>
       <div class="card transcript"><div class="section-title"><h2>최근 발화</h2><span class="muted">전사 수신 → 내용 확인</span></div><p class="transcript-note">전사는 먼저 표시하고 설명 여부는 따로 확인합니다.</p><div id="transcripts" aria-live="off"></div><form id="utterance-form"><label for="utterance">전사 직접 입력</label><textarea id="utterance" rows="2" placeholder="핵심 항목의 문장이나 허용 표현을 입력해 보세요." maxlength="10000" disabled></textarea><div class="form-footer"><select id="endpoint" aria-label="발화 종료 방식"><option value="silence">문장 종료</option><option value="hard_max_duration">4초 분할 · 이어 말하기</option></select><button id="submit" class="secondary" disabled>발화 전달</button></div></form></div>
     </section>
