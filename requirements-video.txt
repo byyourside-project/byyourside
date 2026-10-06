@@ -1,0 +1,3 @@
+# Desktop rehearsal inference. QCS6490 deployment is validated separately.
+-r requirements-review.txt
+mediapipe==0.10.32

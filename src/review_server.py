@@ -1,5 +1,6 @@
 """Loopback-only review UI. Audio and reports remain in recordings/reviews/; recordings/reviews.db indexes them."""
 import json
+import importlib.util
 import mimetypes
 import re
 import shutil
@@ -7,6 +8,7 @@ import subprocess
 import sys
 import threading
 import uuid
+import webbrowser
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -15,9 +17,13 @@ from urllib.parse import urlsplit
 from src.review_analysis import build_review
 from src.review_audio import model_paths
 from src.review_db import ReviewDB
+from src.review_media import VIDEO_EXTENSIONS
+from src.review_script import extract_script, MAX_SCRIPT_BYTES
+from src.review_handoff import build_handoff
 
 MAX_UPLOAD = 80 * 1024 * 1024
-EXTENSIONS = {'.wav', '.m4a', '.mp3', '.flac', '.ogg', '.webm', '.aac'}
+MAX_VIDEO_UPLOAD = 500 * 1024 * 1024
+EXTENSIONS = {'.wav', '.m4a', '.mp3', '.flac', '.ogg', '.aac'} | VIDEO_EXTENSIONS
 MAX_TITLE = 80
 
 
@@ -45,7 +51,10 @@ class ReviewApp:
         return self.storage / job_id
 
     def status(self):
-        return {'models_ready': all(p.is_file() for p in model_paths(self.models_dir)),
+        return {'app_id': 'byyourside_review', 'app_version': 2,
+                'models_ready': all(p.is_file() for p in model_paths(self.models_dir)),
+                'gaze_model_ready': ((self.models_dir / 'face_landmarker.task').is_file()
+                                     and importlib.util.find_spec('mediapipe') is not None),
                 'demo_available': (self.root / 'audio/pilot_001/asr_draft.json').is_file(),
                 'busy': self.analysis_lock.locked()}
 
@@ -54,7 +63,18 @@ class ReviewApp:
         if options.get('title'):
             report['title'] = options['title']
         report.update(id=job_id, audio_url=f'/api/media/{job_id}', download_url=f'/api/export/{job_id}')
+        report['media'] = {**raw.get('media', {'kind': 'audio'}), 'url': f'/api/media/{job_id}',
+                           'duration': raw['duration']}
+        report['gaze'] = raw.get('gaze', {
+            'status': 'not_applicable', 'label': '영상이 필요해요',
+            'summary': '음성만 있는 기록에서는 시선을 판단할 수 없습니다.',
+            'coverage_ratio': 0, 'camera_facing_ratio': None, 'intervals': [], 'events': [],
+        })
+        report['warnings'].extend(raw.get('media_warnings', []))
+        if report['media']['kind'] == 'video':
+            report['method']['gaze'] = '정면 카메라 기준 얼굴·눈 특징의 방향 추정입니다. 실제 청중과 눈을 맞췄는지는 알 수 없습니다.'
         folder = self.folder(job_id)
+        self.write_json(folder / 'coaching_input.json', build_handoff(report))
         self.write_json(folder / 'options.json', options)
         self.write_json(folder / 'report.json', report)
         self.db.upsert(report)
@@ -103,15 +123,21 @@ class ReviewApp:
             raise ValueError('먼저 음성 파일을 선택해 주세요.')
         # Validate before spawning expensive inference.
         build_review({'duration': 1, 'segments': []}, options.get('script', ''), options.get('target_seconds'))
+        gaze_options = options.get('gaze_options', {})
+        if not isinstance(gaze_options, dict) or any(key not in {'calibration_seconds'} for key in gaze_options):
+            raise ValueError('시선 분석 설정이 올바르지 않습니다.')
+        if gaze_options.get('calibration_seconds', 0) not in (0, 3):
+            raise ValueError('정면 기준 보정은 사용하지 않거나, 확인된 첫 3초만 사용할 수 있습니다.')
         if not self.status()['models_ready']:
             raise ValueError('모델 준비가 필요합니다. 실행 안내의 모델 다운로드 단계를 진행해 주세요.')
         if not self.analysis_lock.acquire(blocking=False):
             raise ValueError('다른 녹음을 분석하고 있습니다. 완료 후 다시 시도해 주세요.')
         try:
             upload = json.loads((folder / 'upload.json').read_text(encoding='utf-8'))
-            request = {'source': upload['source'], 'title': upload['title'], 'models_dir': str(self.models_dir)}
+            request = {'source': upload['source'], 'title': upload['title'], 'models_dir': str(self.models_dir),
+                       'gaze_options': gaze_options}
             self.write_json(folder / 'request.json', request)
-            self.jobs[job_id] = {'status': 'running', 'message': '말한 구간을 찾고 대본과 비교하고 있어요.'}
+            self.jobs[job_id] = {'status': 'running', 'message': '영상·음성을 준비하고 있어요.'}
             threading.Thread(target=self._analyze, args=(job_id, options), daemon=True).start()
         except Exception:
             self.analysis_lock.release()
@@ -121,16 +147,17 @@ class ReviewApp:
         folder = self.folder(job_id)
         try:
             result = subprocess.run([sys.executable, '-m', 'src.review_worker', str(folder)],
-                                    cwd=self.root, capture_output=True, timeout=240)
+                                    cwd=self.root, capture_output=True, timeout=1200)
             if result.returncode:
                 error_path = folder / 'error.json'
                 error = json.loads(error_path.read_text(encoding='utf-8'))['error'] if error_path.exists() else '음성 분석에 실패했습니다. 모델과 실행 환경을 확인해 주세요.'
                 raise ValueError(error)
             raw = json.loads((folder / 'raw.json').read_text(encoding='utf-8'))
-            self.save_report(job_id, raw, options)
+            with self.data_lock:
+                self.save_report(job_id, raw, options)
             self.jobs[job_id] = {'status': 'done'}
         except subprocess.TimeoutExpired:
-            self.jobs[job_id] = {'status': 'error', 'error': '분석 제한 시간(4분)을 넘었습니다. 더 짧은 녹음으로 시도해 주세요.'}
+            self.jobs[job_id] = {'status': 'error', 'error': '분석 제한 시간(20분)을 넘었습니다. 더 짧은 영상으로 시도해 주세요.'}
         except Exception as exc:
             self.jobs[job_id] = {'status': 'error', 'error': str(exc)}
         finally:
@@ -141,7 +168,7 @@ def make_handler(app):
     class Handler(BaseHTTPRequestHandler):
         def setup(self):
             super().setup()
-            self.connection.settimeout(30)
+            self.connection.settimeout(120)
 
         def log_message(self, format, *args):
             pass  # Do not put transcript or source filenames in console logs.
@@ -168,13 +195,17 @@ def make_handler(app):
             self.end_headers()
             self.wfile.write(payload)
 
-        def read_body(self, maximum):
+        def body_length(self, maximum):
             try:
                 length = int(self.headers.get('Content-Length', '-1'))
             except ValueError:
                 raise ValueError('파일 크기를 확인하지 못했습니다.')
             if length < 0 or length > maximum:
-                raise ValueError('파일 또는 요청이 너무 큽니다. 녹음은 80MB 이하로 선택해 주세요.')
+                raise ValueError(f'파일 또는 요청이 너무 큽니다. 허용 크기는 {maximum // 1024 // 1024}MB입니다.')
+            return length
+
+        def read_body(self, maximum):
+            length = self.body_length(maximum)
             body = self.rfile.read(length)
             if len(body) != length:
                 raise ValueError('전송이 중단되었습니다. 다시 시도해 주세요.')
@@ -186,32 +217,38 @@ def make_handler(app):
                 raise ValueError('요청 형식이 올바르지 않습니다.')
             return value
 
-        def serve_file(self, path, audio=False, download=False):
+        def serve_file(self, path, audio=False, download=False, video=False):
             if not path.is_file():
                 return self.send_json({'error': '파일을 찾지 못했습니다.'}, 404)
             size = path.stat().st_size
             start, end, status = 0, size - 1, 200
-            request_range = self.headers.get('Range') if audio else None
+            request_range = self.headers.get('Range') if audio or video else None
             if request_range:
-                match = re.fullmatch(r'bytes=(\d+)-(\d*)', request_range)
-                if not match or int(match[1]) >= size:
+                match = re.fullmatch(r'bytes=(\d*)-(\d*)', request_range)
+                if not match or not any(match.groups()):
+                    start, end = size, -1
+                elif not match[1]:
+                    suffix = int(match[2])
+                    start, end = max(0, size - suffix), size - 1
+                    if suffix == 0:
+                        start = size
+                else:
+                    start = int(match[1])
+                    end = min(int(match[2]), size - 1) if match[2] else size - 1
+                if start >= size or end < start:
                     self.send_response(416)
                     self.send_header('Content-Range', f'bytes */{size}')
                     self.send_header('Content-Length', '0')
                     self.end_headers()
                     return
-                start = int(match[1])
-                end = min(int(match[2]), size - 1) if match[2] else size - 1
-                if end < start:
-                    return self.send_json({'error': '잘못된 재생 범위입니다.'}, 416)
                 status = 206
             self.send_response(status)
-            self.send_header('Content-Type', 'audio/wav' if audio else mimetypes.guess_type(path.name)[0] or 'application/octet-stream')
+            self.send_header('Content-Type', 'video/mp4' if video else 'audio/wav' if audio else mimetypes.guess_type(path.name)[0] or 'application/octet-stream')
             self.send_header('Content-Length', str(end - start + 1))
             self.send_header('Cache-Control', 'no-store')
             self.send_header('X-Content-Type-Options', 'nosniff')
             self.send_header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; media-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'")
-            if audio:
+            if audio or video:
                 self.send_header('Accept-Ranges', 'bytes')
             if status == 206:
                 self.send_header('Content-Range', f'bytes {start}-{end}/{size}')
@@ -250,13 +287,21 @@ def make_handler(app):
                     if kind == 'jobs':
                         state = app.jobs.get(job_id)
                         if state and state['status'] != 'done':
+                            if state['status'] == 'running' and (folder / 'progress.json').is_file():
+                                progress = json.loads((folder / 'progress.json').read_text(encoding='utf-8'))
+                                return self.send_json({**state, 'message': progress['message'], 'phase': progress['phase']})
                             return self.send_json(state)
                         if (folder / 'report.json').is_file():
                             return self.send_json({'status': 'done', 'report': json.loads((folder / 'report.json').read_text(encoding='utf-8'))})
                         return self.send_json({'error': '분석 기록을 찾지 못했습니다.'}, 404)
                     if not (folder / 'report.json').is_file():
                         return self.send_json({'error': '분석 결과가 아직 없습니다.'}, 404)
-                    return self.serve_file(folder / ('audio.wav' if kind == 'media' else 'report.json'), audio=kind == 'media', download=kind == 'export')
+                    if kind == 'media':
+                        report = json.loads((folder / 'report.json').read_text(encoding='utf-8'))
+                        is_video = report.get('media', {}).get('kind') == 'video'
+                        return self.serve_file(folder / ('video.mp4' if is_video else 'audio.wav'),
+                                               audio=not is_video, video=is_video)
+                    return self.serve_file(folder / 'report.json', download=True)
                 return self.send_json({'error': '페이지를 찾지 못했습니다.'}, 404)
             except ConnectionError:
                 self.close_connection = True
@@ -271,24 +316,41 @@ def make_handler(app):
                 if route == '/api/demo':
                     with app.data_lock:
                         return self.send_json(app.demo())
+                if route == '/api/script':
+                    return self.send_json(extract_script(self.read_body(MAX_SCRIPT_BYTES),
+                                                         self.headers.get('X-Script-Extension', '')))
                 if route == '/api/upload':
                     suffix = self.headers.get('X-Audio-Extension', '').lower()
                     if suffix not in EXTENSIONS:
-                        raise ValueError('WAV, M4A, MP3, FLAC, OGG, WEBM, AAC 파일을 선택해 주세요.')
-                    payload = self.read_body(MAX_UPLOAD)
-                    if not payload:
+                        raise ValueError('MP4, MOV, WEBM, MKV 영상 또는 WAV, M4A, MP3 음성을 선택해 주세요.')
+                    length = self.body_length(MAX_VIDEO_UPLOAD if suffix in VIDEO_EXTENSIONS else MAX_UPLOAD)
+                    if not length:
                         raise ValueError('비어 있는 파일입니다.')
                     job_id = uuid.uuid4().hex
                     folder = app.folder(job_id)
                     folder.mkdir()
-                    (folder / ('source' + suffix)).write_bytes(payload)
+                    source = folder / ('source' + suffix)
+                    try:
+                        with source.open('wb') as output:
+                            remaining = length
+                            while remaining:
+                                block = self.rfile.read(min(1024 * 1024, remaining))
+                                if not block:
+                                    raise ValueError('전송이 중단되었습니다. 다시 시도해 주세요.')
+                                output.write(block)
+                                remaining -= len(block)
+                    except (OSError, ValueError):
+                        source.unlink(missing_ok=True)
+                        folder.rmdir()
+                        raise
                     app.write_json(folder / 'upload.json', {'source': 'source' + suffix,
                                                             'title': f'연습 {datetime.now():%m/%d %H:%M}'})
                     return self.send_json({'id': job_id}, 201)
                 if route == '/api/analyze':
                     data = self.json_body()
                     job_id = data.get('id', '')
-                    app.start_analysis(job_id, {'script': data.get('script', ''), 'target_seconds': data.get('target_seconds'), 'edits': {}})
+                    app.start_analysis(job_id, {'script': data.get('script', ''), 'target_seconds': data.get('target_seconds'),
+                                                'edits': {}, 'gaze_options': data.get('gaze_options', {})})
                     return self.send_json({'id': job_id, 'status': 'running'}, 202)
                 match = re.fullmatch(r'/api/reviews/([a-f0-9]{32})', route)
                 if match:
@@ -297,6 +359,8 @@ def make_handler(app):
                         data['title'] = clean_title(data['title'])
                     with app.data_lock:
                         folder = app.folder(match[1])
+                        if app.jobs.get(match[1], {}).get('status') == 'running':
+                            raise ValueError('분석이 끝난 뒤 기록을 수정해 주세요.')
                         raw = json.loads((folder / 'raw.json').read_text(encoding='utf-8'))
                         options = json.loads((folder / 'options.json').read_text(encoding='utf-8'))
                         for key in ('script', 'target_seconds', 'edits', 'title'):
@@ -325,10 +389,12 @@ def make_handler(app):
     return Handler
 
 
-def serve(root, port=8765, models_dir=None):
+def serve(root, port=8765, models_dir=None, open_browser=False):
     app = ReviewApp(root, models_dir)
     server = ThreadingHTTPServer(('127.0.0.1', port), make_handler(app))
     print(f'발표 연습 화면: http://127.0.0.1:{server.server_address[1]}', flush=True)
+    if open_browser:
+        threading.Thread(target=webbrowser.open, args=(f'http://127.0.0.1:{server.server_address[1]}',), daemon=True).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:

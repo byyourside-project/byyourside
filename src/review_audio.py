@@ -4,6 +4,8 @@ import subprocess
 import wave
 from pathlib import Path
 
+from src.review_media import INPUT_RESTRICTIONS
+
 import numpy as np
 
 
@@ -24,7 +26,7 @@ def analyze_file(source, wav_path, models_dir):
         if not file.is_file():
             raise ValueError('음성 모델이 준비되지 않았습니다. 모델 준비 안내를 확인해 주세요.')
     command = [imageio_ffmpeg.get_ffmpeg_exe(), '-hide_banner', '-loglevel', 'error',
-               '-nostdin', '-y', '-i', str(source), '-map', '0:a:0', '-t', '1201',
+               '-nostdin', '-y', *INPUT_RESTRICTIONS, '-i', str(source), '-map', '0:a:0', '-t', '1201',
                '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', str(wav_path)]
     try:
         subprocess.run(command, check=True, capture_output=True, timeout=60)
