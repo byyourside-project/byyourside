@@ -1,0 +1,411 @@
+{
+  "scope": "Saved transcript and saved content-judgment replay; controlled clock; no model/audio",
+  "record_name": "presentation_f8d7e9dcecb4430894d3f65b980c33cc.json",
+  "record_sha256": "286c2f6335292c0b5adaa0117fabec99fcccc3dec072af0e860924f715fc4057",
+  "model_called": false,
+  "physical_microphone": false,
+  "speaker_playback": false,
+  "system_volume_changed": false,
+  "content_states_and_evidence_preserved": true,
+  "script_units": [
+    {
+      "keypoint_id": "script-1",
+      "text": "발표자의 시간과 핵심 내용 설명을 돕습니다.",
+      "units": 18,
+      "planned_start_sec": 0,
+      "planned_end_sec": 16.03960396039604,
+      "planned_duration_sec": 16.03960396039604,
+      "status": "explained",
+      "reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다.",
+      "evidence_segment_ids": [
+        "presentation_f8d7e9dcecb4430894d3f65b980c33cc_mic1:2"
+      ],
+      "completed_at_sec": 13.151918290997855,
+      "evidence_audio_end_sec": 11.509286833021324,
+      "processing_delay_sec": 1.642631457976531,
+      "adjusted_completed_at_sec": 11.509286833021324,
+      "actual_duration_sec": 11.509286833021324,
+      "sentence_ratio": 1.393622749445845,
+      "sentence_pace": "fast",
+      "timing_basis": "evidence_speech_end",
+      "timing_estimated": false
+    },
+    {
+      "keypoint_id": "script-2",
+      "text": "음성 인식은 로컬에서 실행합니다.",
+      "units": 14,
+      "planned_start_sec": 16.03960396039604,
+      "planned_end_sec": 28.514851485148515,
+      "planned_duration_sec": 12.475247524752476,
+      "status": "explained",
+      "reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다.",
+      "evidence_segment_ids": [
+        "presentation_f8d7e9dcecb4430894d3f65b980c33cc_mic1:3"
+      ],
+      "completed_at_sec": 17.327132333011832,
+      "evidence_audio_end_sec": 15.605286833021324,
+      "processing_delay_sec": 1.7218454999905077,
+      "adjusted_completed_at_sec": 15.605286833021324,
+      "actual_duration_sec": 4.096,
+      "sentence_ratio": 3.0457147277227725,
+      "sentence_pace": "fast",
+      "timing_basis": "evidence_speech_end",
+      "timing_estimated": false
+    },
+    {
+      "keypoint_id": "script-3",
+      "text": "발화를 최대 4초 구간으로 분할합니다.",
+      "units": 16,
+      "planned_start_sec": 28.514851485148515,
+      "planned_end_sec": 42.772277227722775,
+      "planned_duration_sec": 14.25742574257426,
+      "status": "explained",
+      "reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다.",
+      "evidence_segment_ids": [
+        "presentation_f8d7e9dcecb4430894d3f65b980c33cc_mic1:4"
+      ],
+      "completed_at_sec": 22.562580166035332,
+      "evidence_audio_end_sec": 20.693286833021325,
+      "processing_delay_sec": 1.8692933330140065,
+      "adjusted_completed_at_sec": 20.693286833021325,
+      "actual_duration_sec": 5.088000000000001,
+      "sentence_ratio": 2.8021670091537456,
+      "sentence_pace": "fast",
+      "timing_basis": "evidence_speech_end",
+      "timing_estimated": false
+    },
+    {
+      "keypoint_id": "script-4",
+      "text": "불확실한 내용은 판단을 보류합니다.",
+      "units": 15,
+      "planned_start_sec": 42.772277227722775,
+      "planned_end_sec": 56.13861386138614,
+      "planned_duration_sec": 13.366336633663366,
+      "status": "explained",
+      "reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다.",
+      "evidence_segment_ids": [
+        "presentation_f8d7e9dcecb4430894d3f65b980c33cc_mic1:5"
+      ],
+      "completed_at_sec": 28.081129708036315,
+      "evidence_audio_end_sec": 26.133286833021323,
+      "processing_delay_sec": 1.9478428750149916,
+      "adjusted_completed_at_sec": 26.133286833021323,
+      "actual_duration_sec": 5.439999999999998,
+      "sentence_ratio": 2.457047175305767,
+      "sentence_pace": "fast",
+      "timing_basis": "evidence_speech_end",
+      "timing_estimated": false
+    },
+    {
+      "keypoint_id": "script-5",
+      "text": "실제 발표 음성으로 정확도와 지연을 검증합니다.",
+      "units": 20,
+      "planned_start_sec": 56.13861386138614,
+      "planned_end_sec": 73.96039603960396,
+      "planned_duration_sec": 17.821782178217823,
+      "status": "explained",
+      "reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다.",
+      "evidence_segment_ids": [
+        "presentation_f8d7e9dcecb4430894d3f65b980c33cc_mic1:6"
+      ],
+      "completed_at_sec": 33.98297750001075,
+      "evidence_audio_end_sec": 32.08528683302133,
+      "processing_delay_sec": 1.8976906669894191,
+      "adjusted_completed_at_sec": 32.08528683302133,
+      "actual_duration_sec": 5.952000000000005,
+      "sentence_ratio": 2.994251038007024,
+      "sentence_pace": "fast",
+      "timing_basis": "evidence_speech_end",
+      "timing_estimated": false
+    },
+    {
+      "keypoint_id": "script-6",
+      "text": "보드 성능은 별도로 측정합니다.",
+      "units": 13,
+      "planned_start_sec": 73.96039603960396,
+      "planned_end_sec": 85.54455445544555,
+      "planned_duration_sec": 11.584158415841586,
+      "status": "explained",
+      "reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다.",
+      "evidence_segment_ids": [
+        "presentation_f8d7e9dcecb4430894d3f65b980c33cc_mic1:3"
+      ],
+      "completed_at_sec": 44.670605916006025,
+      "evidence_audio_end_sec": 15.605286833021324,
+      "processing_delay_sec": 1.8653190829846977,
+      "adjusted_completed_at_sec": 42.80528683302133,
+      "actual_duration_sec": 10.719999999999999,
+      "sentence_ratio": 1.080611792522536,
+      "sentence_pace": "on_plan",
+      "timing_basis": "request_speech_end",
+      "timing_estimated": true
+    },
+    {
+      "keypoint_id": "script-7",
+      "text": "감사합니다.",
+      "units": 5,
+      "planned_start_sec": 85.54455445544555,
+      "planned_end_sec": 90.0,
+      "planned_duration_sec": 4.4554455445544505,
+      "status": "explained",
+      "reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다.",
+      "evidence_segment_ids": [
+        "presentation_f8d7e9dcecb4430894d3f65b980c33cc_mic1:9"
+      ],
+      "completed_at_sec": 51.050642291025724,
+      "evidence_audio_end_sec": 48.53328683302132,
+      "processing_delay_sec": 2.5173554580044026,
+      "adjusted_completed_at_sec": 48.53328683302132,
+      "actual_duration_sec": 5.727999999999994,
+      "sentence_ratio": 0.7778361635046185,
+      "sentence_pace": "on_plan",
+      "timing_basis": "evidence_speech_end",
+      "timing_estimated": false
+    }
+  ],
+  "final_display": {
+    "pace": "fast",
+    "reliable": true,
+    "reason": "발표 종료 시 마지막으로 확인된 속도입니다.",
+    "reason_code": "final_snapshot",
+    "latest_keypoint_id": "script-7",
+    "planned_elapsed_sec": 90.0,
+    "measured_elapsed_sec": 48.53328683302132,
+    "ratio": 1.854397381113808,
+    "estimated_total_sec": 48.53328683302132,
+    "observed_units_per_min": 124.8627569949964,
+    "processing_delay_sec": 2.5173554580044026,
+    "completed_at_sec": 51.050642291025724,
+    "evidence_audio_end_sec": 48.53328683302132,
+    "timing_basis": "evidence_speech_end",
+    "timing_estimated": false,
+    "evidence_age_sec": 15.891457457976884,
+    "pending": false,
+    "final": true
+  },
+  "legacy_voice_pace": "waiting",
+  "pending_checkpoints": [
+    {
+      "elapsed_sec": 15.951765375037212,
+      "display_pace": {
+        "pace": "fast",
+        "reliable": true,
+        "reason": "새 발화를 처리하는 동안 마지막으로 확인된 속도를 유지합니다.",
+        "reason_code": "processing_pending",
+        "latest_keypoint_id": "script-1",
+        "planned_elapsed_sec": 16.03960396039604,
+        "measured_elapsed_sec": 11.509286833021324,
+        "ratio": 1.393622749445845,
+        "estimated_total_sec": 64.57988722973077,
+        "observed_units_per_min": 93.83726512935357,
+        "processing_delay_sec": 1.642631457976531,
+        "completed_at_sec": 13.151918290997855,
+        "evidence_audio_end_sec": 11.509286833021324,
+        "timing_basis": "evidence_speech_end",
+        "timing_estimated": false,
+        "evidence_age_sec": 4.442478542015888,
+        "pending": true,
+        "final": false
+      }
+    },
+    {
+      "elapsed_sec": 21.066101041040383,
+      "display_pace": {
+        "pace": "fast",
+        "reliable": true,
+        "reason": "새 발화를 처리하는 동안 마지막으로 확인된 속도를 유지합니다.",
+        "reason_code": "processing_pending",
+        "latest_keypoint_id": "script-2",
+        "planned_elapsed_sec": 28.514851485148515,
+        "measured_elapsed_sec": 15.605286833021324,
+        "ratio": 1.8272558390154103,
+        "estimated_total_sec": 49.254186566723554,
+        "observed_units_per_min": 123.0352264937043,
+        "processing_delay_sec": 1.7218454999905077,
+        "completed_at_sec": 17.327132333011832,
+        "evidence_audio_end_sec": 15.605286833021324,
+        "timing_basis": "evidence_speech_end",
+        "timing_estimated": false,
+        "evidence_age_sec": 5.460814208019059,
+        "pending": true,
+        "final": false
+      }
+    },
+    {
+      "elapsed_sec": 26.50668820802821,
+      "display_pace": {
+        "pace": "fast",
+        "reliable": true,
+        "reason": "새 발화를 처리하는 동안 마지막으로 확인된 속도를 유지합니다.",
+        "reason_code": "processing_pending",
+        "latest_keypoint_id": "script-3",
+        "planned_elapsed_sec": 42.77227722772277,
+        "measured_elapsed_sec": 20.693286833021325,
+        "ratio": 2.0669639179537627,
+        "estimated_total_sec": 43.54212437781571,
+        "observed_units_per_min": 139.17557047555337,
+        "processing_delay_sec": 1.8692933330140065,
+        "completed_at_sec": 22.562580166035332,
+        "evidence_audio_end_sec": 20.693286833021325,
+        "timing_basis": "evidence_speech_end",
+        "timing_estimated": false,
+        "evidence_age_sec": 5.813401375006883,
+        "pending": true,
+        "final": false
+      }
+    },
+    {
+      "elapsed_sec": 32.483364708023146,
+      "display_pace": {
+        "pace": "fast",
+        "reliable": true,
+        "reason": "새 발화를 처리하는 동안 마지막으로 확인된 속도를 유지합니다.",
+        "reason_code": "processing_pending",
+        "latest_keypoint_id": "script-4",
+        "planned_elapsed_sec": 56.13861386138614,
+        "measured_elapsed_sec": 26.133286833021323,
+        "ratio": 2.1481650670305616,
+        "estimated_total_sec": 41.89622174817704,
+        "observed_units_per_min": 144.64311451339114,
+        "processing_delay_sec": 1.9478428750149916,
+        "completed_at_sec": 28.081129708036315,
+        "evidence_audio_end_sec": 26.133286833021323,
+        "timing_basis": "evidence_speech_end",
+        "timing_estimated": false,
+        "evidence_age_sec": 6.350077875001823,
+        "pending": true,
+        "final": false
+      }
+    },
+    {
+      "elapsed_sec": 37.697516790998634,
+      "display_pace": {
+        "pace": "fast",
+        "reliable": true,
+        "reason": "새 발화를 처리하는 동안 마지막으로 확인된 속도를 유지합니다.",
+        "reason_code": "processing_pending",
+        "latest_keypoint_id": "script-5",
+        "planned_elapsed_sec": 73.96039603960395,
+        "measured_elapsed_sec": 32.08528683302133,
+        "ratio": 2.3051187425722457,
+        "estimated_total_sec": 39.043541808857285,
+        "observed_units_per_min": 155.21132866653122,
+        "processing_delay_sec": 1.8976906669894191,
+        "completed_at_sec": 33.98297750001075,
+        "evidence_audio_end_sec": 32.08528683302133,
+        "timing_basis": "evidence_speech_end",
+        "timing_estimated": false,
+        "evidence_age_sec": 5.612229957977306,
+        "pending": true,
+        "final": false
+      }
+    },
+    {
+      "elapsed_sec": 43.14872916601598,
+      "display_pace": {
+        "pace": "fast",
+        "reliable": true,
+        "reason": "새 발화를 처리하는 동안 마지막으로 확인된 속도를 유지합니다.",
+        "reason_code": "processing_pending",
+        "latest_keypoint_id": "script-5",
+        "planned_elapsed_sec": 73.96039603960395,
+        "measured_elapsed_sec": 32.08528683302133,
+        "ratio": 2.3051187425722457,
+        "estimated_total_sec": 39.043541808857285,
+        "observed_units_per_min": 155.21132866653122,
+        "processing_delay_sec": 1.8976906669894191,
+        "completed_at_sec": 33.98297750001075,
+        "evidence_audio_end_sec": 32.08528683302133,
+        "timing_basis": "evidence_speech_end",
+        "timing_estimated": false,
+        "evidence_age_sec": 11.063442332994654,
+        "pending": true,
+        "final": false
+      }
+    },
+    {
+      "elapsed_sec": 48.876394291000906,
+      "display_pace": {
+        "pace": "fast",
+        "reliable": true,
+        "reason": "새 발화를 처리하는 동안 마지막으로 확인된 속도를 유지합니다.",
+        "reason_code": "processing_pending",
+        "latest_keypoint_id": "script-6",
+        "planned_elapsed_sec": 85.54455445544554,
+        "measured_elapsed_sec": 42.80528683302133,
+        "ratio": 1.998457685592561,
+        "estimated_total_sec": 45.03472885557452,
+        "observed_units_per_min": 134.5628174965658,
+        "processing_delay_sec": 1.8653190829846977,
+        "completed_at_sec": 44.670605916006025,
+        "evidence_audio_end_sec": 15.605286833021324,
+        "timing_basis": "request_speech_end",
+        "timing_estimated": true,
+        "evidence_age_sec": 6.071107457979579,
+        "pending": true,
+        "final": false
+      }
+    }
+  ],
+  "sample_counts": {
+    "voice_pace": {
+      "fast": 196,
+      "on_plan": 0,
+      "slow": 0,
+      "waiting": 448
+    },
+    "display_pace": {
+      "fast": 513,
+      "on_plan": 0,
+      "slow": 0,
+      "waiting": 131
+    }
+  },
+  "source_sha256": {
+    "src/script_coaching.py": "892bebe6ba5ead8e62166593fa0ed3e01fbd856e7a8cdc65ceb612d5ac473b02",
+    "src/presentation.py": "c53ea6a01cee4f015a3c5c18efd6dbdb1308b180b9b350510e90d56a43e791fe",
+    "scripts/validate_sentence_pacing.py": "d44aec036a1decd9b0ac643f9528932b8821cceac5bf679183d4292553c9f0fd"
+  },
+  "passed": true,
+  "additional_verification": {
+    "python_regression": {
+      "passed": true,
+      "tests": 315,
+      "duration_sec": 135.314
+    },
+    "ui_dom": {
+      "passed": true,
+      "assertions": 79
+    },
+    "browser_manual_input": {
+      "passed": true,
+      "session_id": "649d8324781a4ec7b9669b49bd386994",
+      "local_model": "qwen3:8b",
+      "confirmed_sentences": 2,
+      "physical_microphone": false,
+      "speaker_playback": false,
+      "system_volume_changed": false,
+      "final_display": {
+        "pace": "slow",
+        "reliable": true,
+        "reason": "발표 종료 시 마지막으로 확인된 속도입니다.",
+        "reason_code": "final_snapshot",
+        "latest_keypoint_id": "script-2",
+        "planned_elapsed_sec": 28.514851485148515,
+        "measured_elapsed_sec": 40.87628191598924,
+        "ratio": 0.697589167815055,
+        "estimated_total_sec": 129.01576479734103,
+        "observed_units_per_min": 46.9710039662137,
+        "processing_delay_sec": 1.311389375012368,
+        "completed_at_sec": 42.18767129100161,
+        "evidence_audio_end_sec": 40.87628191598924,
+        "timing_basis": "evidence_speech_end",
+        "timing_estimated": false,
+        "evidence_age_sec": 26.78670591698028,
+        "pending": false,
+        "final": true
+      },
+      "screenshot": "presentation_sentence_pacing.png"
+    }
+  }
+}

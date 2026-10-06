@@ -1,0 +1,975 @@
+{
+  "schema_version": 1,
+  "timestamp_utc": "2026-10-04T18:56:23.538156+00:00",
+  "scope": "Development regression and real Mac microphone loopback smoke; not human presentation accuracy or board verification",
+  "source_base_revision": "d6a5fc4",
+  "tested_working_tree_changes": true,
+  "source_sha256": {
+    "src/microphone.py": "ae559579fc224852d972b2ccc589dcbe11199525d15093df50312ac31104cbc1",
+    "src/semantic_guards.py": "c0845261ea18b656918204910a148eb575b41b915f608879fbccfd2dcfe67aa7",
+    "src/pipeline.py": "e9db0fb8c4618174b444ead3b70f94009a4dfad4e70ef8ee10f9cd44913588ed",
+    "src/config.py": "8a7db2ad5f1e300359d08dc8ca384daa889c3d1a1313774575bcee50b4420a1a",
+    "src/presentation.py": "27da466045232e9fd44cb9ef7822c217c79837490b36c8d611054d22c0c8700e",
+    "src/presentation_server.py": "8454f98d9ce796a26da86310181f428cfdcfc1e04558b7b35aaf0ad610d2991c",
+    "src/script_coaching.py": "2ec2074ab68f4c783f8a0a7e395681a1d01d46259c2c76b0dfe151ce51a55287",
+    "src/ollama_coach.py": "d5921851673fc4cf9b24b9f92cb0b912ed38da6fe35c5341c8e6bf81d47b6daa",
+    "scripts/run_presentation.py": "de9dc8827a99e17f333210eeeb7ed8039c01a87ec69d8e63e223ca3ac4f60b03",
+    "web/presentation/index.html": "7b81573d5c10685536793b55b0065e5fdffa051901d63ebee2385d1c245daf3f",
+    "web/presentation/app.js": "3779a27a76ccaade1556fdaec8ee83e9eb8173f012c6a38bf813aef515ab3e8d",
+    "web/presentation/style.css": "387599f1178e415c42d659360c534e52988a3fd9f4f842718c91fdc7eae9d42f",
+    "examples/coaching_microphone_eval.json": "c776114af1b2142c9bca6b21dbfd21d04f867fd535dabc5dac666fba42c61867",
+    "tests/test_presentation_ui.cjs": "d64021156b2d84941c4467b4005a57ece502f91d909affaef80d24e352248781"
+  },
+  "observed_failure": {
+    "code": -9986,
+    "os_log": [
+      "TCC authorization allowed",
+      "Core Audio mlock failure",
+      "failed to lock the buffer",
+      "IO thread failed to start"
+    ],
+    "loaded_model": "qwen3:14b",
+    "ollama_reported_resident_size": "9.6 GB",
+    "same_microphone_after_model_unload": "callbacks received",
+    "replacement_model": "qwen3:8b",
+    "replacement_ollama_reported_resident_size": "5.9 GB",
+    "interpretation": "Measured association on this 16 GB Mac, not a universal diagnosis for every PortAudio -9986 error",
+    "os_security_or_permission_changes": false
+  },
+  "regression_tests": {
+    "command": ".venv/bin/python -m unittest discover -s tests -v",
+    "tests": 190,
+    "duration_sec": 130.005,
+    "result": "OK",
+    "covers": [
+      "native input lifetime and bounded retry",
+      "device disappearance and reassignment",
+      "microphone API errors, concurrent probe guards and reconnect event generations",
+      "stop with pending cut and empty tail",
+      "replacement deck after ended session",
+      "quantity units, Korean numerals and unfinished speech",
+      "input/STT/model quality issues retract script gap alerts",
+      "existing STT, VAD and presentation regressions"
+    ]
+  },
+  "ui_dom_checks": {
+    "checks": 22,
+    "result": "PASS",
+    "command": "node tests/test_presentation_ui.cjs",
+    "scope": "DOM fixture verification, separate from actual browser input test"
+  },
+  "browser_input_check": {
+    "audio_status": "idle",
+    "coach": "ollama_local",
+    "session": null,
+    "audio_error": null,
+    "microphone_test": {
+      "status": "ok",
+      "device": {
+        "id": 0,
+        "name": "MacBook Pro 마이크",
+        "input_channels": 1,
+        "default_sample_rate": 48000,
+        "is_default": true,
+        "sample_rate": 48000,
+        "blocksize": 1536
+      },
+      "callbacks": 22,
+      "peak_dbfs": -25.3
+    },
+    "url": "http://127.0.0.1:8765/",
+    "screenshot": "docs/reports/presentation_microphone_ready.png",
+    "verified_ui_message": "마이크 연결을 확인했습니다. 발표를 시작할 수 있습니다.",
+    "recording_left_active": false
+  },
+  "semantic_evaluation": {
+    "model": "qwen3:8b",
+    "model_info": {
+      "name": "qwen3:8b",
+      "digest": "500a1f067a9f782620b40bee6f7b0c89e17ae61f686b92c24933e4ca4b2b8b41",
+      "size": 5225388164,
+      "details": {
+        "parent_model": "",
+        "format": "gguf",
+        "family": "qwen3",
+        "families": [
+          "qwen3"
+        ],
+        "parameter_size": "8.2B",
+        "quantization_level": "Q4_K_M",
+        "context_length": 40960,
+        "embedding_length": 4096
+      }
+    },
+    "prompt_version": "semantic_v14_guarded_pause_evidence",
+    "timestamp_utc": "2026-10-04T18:46:28.520721+00:00",
+    "dataset_sha256": "064b63411685de2023ec2d4ff4e1a680555a4873f968e1d1699417017ec8b5d2",
+    "dataset_scope": "Combined hand-authored development cases; not independent accuracy verification.",
+    "total_cases": 32,
+    "correct_cases": 32,
+    "total_points": 44,
+    "point_accuracy": 1.0,
+    "accuracy": 1.0,
+    "inference_calls": 38,
+    "valid_response_count": 38,
+    "valid_response_rate": 1.0,
+    "error_cases": 0,
+    "false_missing": {
+      "count": 0,
+      "eligible_cases": 41
+    },
+    "false_explained": {
+      "count": 0,
+      "eligible_cases": 21
+    },
+    "latency": {
+      "unit": "ms",
+      "scope": "case model requests after a separate dummy warm-up; any per-case model load remains included; not audio-to-screen latency",
+      "count": 38,
+      "p50": 860.0048329972196,
+      "p95": 1412.1524418820616,
+      "max": 2184.9664580076933,
+      "first_call": 904.4331249897368,
+      "subsequent_p95": 1455.6319501833023,
+      "budget_ms": 2000.0
+    },
+    "gate_breakdown": {
+      "development_accuracy": true,
+      "response_validity": true,
+      "false_missing_rate": true,
+      "false_explained_rate": true,
+      "request_latency": true
+    },
+    "status": "DEVELOPMENT_PASS",
+    "generalization_status": "NOT_RUN",
+    "warm_up": {
+      "requested": true,
+      "metrics": {
+        "wall_ms": 3980.9288749820553,
+        "total_duration": 3975957125,
+        "load_duration": 2036213583,
+        "prompt_eval_count": 784,
+        "prompt_eval_duration": 1379672000,
+        "eval_count": 13,
+        "eval_duration": 555262000
+      },
+      "excluded_from_case_latency": true
+    },
+    "dataset_path": "examples/coaching_microphone_eval.json",
+    "cases": [
+      {
+        "id": "C01",
+        "category": "exact",
+        "correct": true,
+        "points": [
+          {
+            "keypoint_id": "k1",
+            "expected_status": "explained",
+            "actual_status": "explained",
+            "expected_missing": false,
+            "actual_missing": false,
+            "correct": true,
+            "evidence_segment_ids": [
+              "C01:1"
+            ],
+            "decision_reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다."
+          }
+        ],
+        "errors": []
+      },
+      {
+        "id": "C02",
+        "category": "paraphrase",
+        "correct": true,
+        "points": [
+          {
+            "keypoint_id": "k1",
+            "expected_status": "explained",
+            "actual_status": "explained",
+            "expected_missing": false,
+            "actual_missing": false,
+            "correct": true,
+            "evidence_segment_ids": [
+              "C02:1"
+            ],
+            "decision_reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다."
+          }
+        ],
+        "errors": []
+      },
+      {
+        "id": "C03",
+        "category": "alias",
+        "correct": true,
+        "points": [
+          {
+            "keypoint_id": "k1",
+            "expected_status": "explained",
+            "actual_status": "explained",
+            "expected_missing": false,
+            "actual_missing": false,
+            "correct": true,
+            "evidence_segment_ids": [
+              "C03:1"
+            ],
+            "decision_reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다."
+          }
+        ],
+        "errors": []
+      },
+      {
+        "id": "C04",
+        "category": "paraphrase",
+        "correct": true,
+        "points": [
+          {
+            "keypoint_id": "k1",
+            "expected_status": "explained",
+            "actual_status": "explained",
+            "expected_missing": false,
+            "actual_missing": false,
+            "correct": true,
+            "evidence_segment_ids": [
+              "C04:1"
+            ],
+            "decision_reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다."
+          }
+        ],
+        "errors": []
+      },
+      {
+        "id": "C05",
+        "category": "negation",
+        "correct": true,
+        "points": [
+          {
+            "keypoint_id": "k1",
+            "expected_status": "uncertain",
+            "actual_status": "uncertain",
+            "expected_missing": false,
+            "actual_missing": false,
+            "correct": true,
+            "evidence_segment_ids": [
+              "C05:1"
+            ],
+            "decision_reason": "로컬 모델이 관련 발화의 모순·불일치 또는 불확실성을 판단했습니다."
+          }
+        ],
+        "errors": []
+      },
+      {
+        "id": "C06",
+        "category": "negation",
+        "correct": true,
+        "points": [
+          {
+            "keypoint_id": "k1",
+            "expected_status": "uncertain",
+            "actual_status": "uncertain",
+            "expected_missing": false,
+            "actual_missing": false,
+            "correct": true,
+            "evidence_segment_ids": [
+              "C06:1"
+            ],
+            "decision_reason": "로컬 모델이 관련 발화의 모순·불일치 또는 불확실성을 판단했습니다."
+          }
+        ],
+        "errors": []
+      },
+      {
+        "id": "C07",
+        "category": "number_error",
+        "correct": true,
+        "points": [
+          {
+            "keypoint_id": "k1",
+            "expected_status": "uncertain",
+            "actual_status": "uncertain",
+            "expected_missing": false,
+            "actual_missing": false,
+            "correct": true,
+            "evidence_segment_ids": [
+              "C07:1"
+            ],
+            "decision_reason": "로컬 모델이 관련 발화의 모순·불일치 또는 불확실성을 판단했습니다."
+          }
+        ],
+        "errors": []
+      },
+      {
+        "id": "C08",
+        "category": "decimal_error",
+        "correct": true,
+        "points": [
+          {
+            "keypoint_id": "k1",
+            "expected_status": "uncertain",
+            "actual_status": "uncertain",
+            "expected_missing": false,
+            "actual_missing": false,
+            "correct": true,
+            "evidence_segment_ids": [
+              "C08:1"
+            ],
+            "decision_reason": "로컬 모델이 관련 발화의 모순·불일치 또는 불확실성을 판단했습니다."
+          }
+        ],
+        "errors": []
+      },
+      {
+        "id": "C09",
+        "category": "number_correct",
+        "correct": true,
+        "points": [
+          {
+            "keypoint_id": "k1",
+            "expected_status": "explained",
+            "actual_status": "explained",
+            "expected_missing": false,
+            "actual_missing": false,
+            "correct": true,
+            "evidence_segment_ids": [
+              "C09:1"
+            ],
+            "decision_reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다."
+          }
+        ],
+        "errors": []
+      },
+      {
+        "id": "C10",
+        "category": "spoken_number",
+        "correct": true,
+        "points": [
+          {
+            "keypoint_id": "k1",
+            "expected_status": "explained",
+            "actual_status": "explained",
+            "expected_missing": false,
+            "actual_missing": false,
+            "correct": true,
+            "evidence_segment_ids": [
+              "C10:1"
+            ],
+            "decision_reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다."
+          }
+        ],
+        "errors": []
+      },
+      {
+        "id": "C11",
+        "category": "unrelated",
+        "correct": true,
+        "points": [
+          {
+            "keypoint_id": "k1",
+            "expected_status": "unconfirmed",
+            "actual_status": "unconfirmed",
+            "expected_missing": false,
+            "actual_missing": false,
+            "correct": true,
+            "evidence_segment_ids": [],
+            "decision_reason": "로컬 모델이 핵심 항목의 설명을 아직 확인하지 못했습니다."
+          }
+        ],
+        "errors": []
+      },
+      {
+        "id": "C12",
+        "category": "not_yet_mentioned",
+        "correct": true,
+        "points": [
+          {
+            "keypoint_id": "k1",
+            "expected_status": "unconfirmed",
+            "actual_status": "unconfirmed",
+            "expected_missing": false,
+            "actual_missing": false,
+            "correct": true,
+            "evidence_segment_ids": [],
+            "decision_reason": "로컬 모델이 핵심 항목의 설명을 아직 확인하지 못했습니다."
+          }
+        ],
+        "errors": []
+      },
+      {
+        "id": "C13",
+        "category": "missing_on_transition",
+        "correct": true,
+        "points": [
+          {
+            "keypoint_id": "k1",
+            "expected_status": "unconfirmed",
+            "actual_status": "unconfirmed",
+            "expected_missing": true,
+            "actual_missing": true,
+            "correct": true,
+            "evidence_segment_ids": [],
+            "decision_reason": "로컬 모델이 핵심 항목의 설명을 아직 확인하지 못했습니다."
+          }
+        ],
+        "errors": []
+      },
+      {
+        "id": "C14",
+        "category": "incomplete",
+        "correct": true,
+        "points": [
+          {
+            "keypoint_id": "k1",
+            "expected_status": "unconfirmed",
+            "actual_status": "unconfirmed",
+            "expected_missing": false,
+            "actual_missing": false,
+            "correct": true,
+            "evidence_segment_ids": [],
+            "decision_reason": "아직 확인되지 않았습니다."
+          }
+        ],
+        "errors": []
+      },
+      {
+        "id": "C15",
+        "category": "continuation",
+        "correct": true,
+        "points": [
+          {
+            "keypoint_id": "k1",
+            "expected_status": "explained",
+            "actual_status": "explained",
+            "expected_missing": false,
+            "actual_missing": false,
+            "correct": true,
+            "evidence_segment_ids": [
+              "C15:1",
+              "C15:2"
+            ],
+            "decision_reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다."
+          }
+        ],
+        "errors": []
+      },
+      {
+        "id": "C16",
+        "category": "correction",
+        "correct": true,
+        "points": [
+          {
+            "keypoint_id": "k1",
+            "expected_status": "explained",
+            "actual_status": "explained",
+            "expected_missing": false,
+            "actual_missing": false,
+            "correct": true,
+            "evidence_segment_ids": [
+              "C16:1",
+              "C16:2"
+            ],
+            "decision_reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다."
+          }
+        ],
+        "errors": []
+      },
+      {
+        "id": "C17",
+        "category": "retraction",
+        "correct": true,
+        "points": [
+          {
+            "keypoint_id": "k1",
+            "expected_status": "uncertain",
+            "actual_status": "uncertain",
+            "expected_missing": false,
+            "actual_missing": false,
+            "correct": true,
+            "evidence_segment_ids": [
+              "C17:1",
+              "C17:2"
+            ],
+            "decision_reason": "로컬 모델이 관련 발화의 모순·불일치 또는 불확실성을 판단했습니다."
+          }
+        ],
+        "errors": []
+      },
+      {
+        "id": "C18",
+        "category": "stt_uncertainty",
+        "correct": true,
+        "points": [
+          {
+            "keypoint_id": "k1",
+            "expected_status": "uncertain",
+            "actual_status": "uncertain",
+            "expected_missing": false,
+            "actual_missing": false,
+            "correct": true,
+            "evidence_segment_ids": [
+              "C18:1"
+            ],
+            "decision_reason": "전환 경계 또는 불확실한 전사입니다."
+          }
+        ],
+        "errors": []
+      },
+      {
+        "id": "C19",
+        "category": "instruction_in_utterance",
+        "correct": true,
+        "points": [
+          {
+            "keypoint_id": "k1",
+            "expected_status": "unconfirmed",
+            "actual_status": "unconfirmed",
+            "expected_missing": false,
+            "actual_missing": false,
+            "correct": true,
+            "evidence_segment_ids": [],
+            "decision_reason": "로컬 모델이 핵심 항목의 설명을 아직 확인하지 못했습니다."
+          }
+        ],
+        "errors": []
+      },
+      {
+        "id": "C20",
+        "category": "unit_error",
+        "correct": true,
+        "points": [
+          {
+            "keypoint_id": "k1",
+            "expected_status": "uncertain",
+            "actual_status": "uncertain",
+            "expected_missing": false,
+            "actual_missing": false,
+            "correct": true,
+            "evidence_segment_ids": [
+              "C20:1"
+            ],
+            "decision_reason": "로컬 모델이 관련 발화의 모순·불일치 또는 불확실성을 판단했습니다."
+          }
+        ],
+        "errors": []
+      },
+      {
+        "id": "M01",
+        "category": "two_paraphrase",
+        "correct": true,
+        "points": [
+          {
+            "keypoint_id": "k1",
+            "expected_status": "explained",
+            "actual_status": "explained",
+            "expected_missing": false,
+            "actual_missing": false,
+            "correct": true,
+            "evidence_segment_ids": [
+              "M01:1"
+            ],
+            "decision_reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다."
+          },
+          {
+            "keypoint_id": "k2",
+            "expected_status": "explained",
+            "actual_status": "explained",
+            "expected_missing": false,
+            "actual_missing": false,
+            "correct": true,
+            "evidence_segment_ids": [
+              "M01:1"
+            ],
+            "decision_reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다."
+          }
+        ],
+        "errors": []
+      },
+      {
+        "id": "M02",
+        "category": "two_partial",
+        "correct": true,
+        "points": [
+          {
+            "keypoint_id": "k1",
+            "expected_status": "explained",
+            "actual_status": "explained",
+            "expected_missing": false,
+            "actual_missing": false,
+            "correct": true,
+            "evidence_segment_ids": [
+              "M02:1"
+            ],
+            "decision_reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다."
+          },
+          {
+            "keypoint_id": "k2",
+            "expected_status": "unconfirmed",
+            "actual_status": "unconfirmed",
+            "expected_missing": true,
+            "actual_missing": true,
+            "correct": true,
+            "evidence_segment_ids": [],
+            "decision_reason": "로컬 모델이 핵심 항목의 설명을 아직 확인하지 못했습니다."
+          }
+        ],
+        "errors": []
+      },
+      {
+        "id": "M03",
+        "category": "two_contradiction",
+        "correct": true,
+        "points": [
+          {
+            "keypoint_id": "k1",
+            "expected_status": "uncertain",
+            "actual_status": "uncertain",
+            "expected_missing": false,
+            "actual_missing": false,
+            "correct": true,
+            "evidence_segment_ids": [
+              "M03:1"
+            ],
+            "decision_reason": "로컬 모델이 관련 발화의 모순·불일치 또는 불확실성을 판단했습니다."
+          },
+          {
+            "keypoint_id": "k2",
+            "expected_status": "explained",
+            "actual_status": "explained",
+            "expected_missing": false,
+            "actual_missing": false,
+            "correct": true,
+            "evidence_segment_ids": [
+              "M03:1"
+            ],
+            "decision_reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다."
+          }
+        ],
+        "errors": []
+      },
+      {
+        "id": "M04",
+        "category": "four_exact",
+        "correct": true,
+        "points": [
+          {
+            "keypoint_id": "k1",
+            "expected_status": "explained",
+            "actual_status": "explained",
+            "expected_missing": false,
+            "actual_missing": false,
+            "correct": true,
+            "evidence_segment_ids": [
+              "M04:1"
+            ],
+            "decision_reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다."
+          },
+          {
+            "keypoint_id": "k2",
+            "expected_status": "explained",
+            "actual_status": "explained",
+            "expected_missing": false,
+            "actual_missing": false,
+            "correct": true,
+            "evidence_segment_ids": [
+              "M04:1"
+            ],
+            "decision_reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다."
+          },
+          {
+            "keypoint_id": "k3",
+            "expected_status": "explained",
+            "actual_status": "explained",
+            "expected_missing": false,
+            "actual_missing": false,
+            "correct": true,
+            "evidence_segment_ids": [
+              "M04:1"
+            ],
+            "decision_reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다."
+          },
+          {
+            "keypoint_id": "k4",
+            "expected_status": "explained",
+            "actual_status": "explained",
+            "expected_missing": false,
+            "actual_missing": false,
+            "correct": true,
+            "evidence_segment_ids": [
+              "M04:1"
+            ],
+            "decision_reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다."
+          }
+        ],
+        "errors": []
+      },
+      {
+        "id": "M05",
+        "category": "four_mixed",
+        "correct": true,
+        "points": [
+          {
+            "keypoint_id": "k1",
+            "expected_status": "explained",
+            "actual_status": "explained",
+            "expected_missing": false,
+            "actual_missing": false,
+            "correct": true,
+            "evidence_segment_ids": [
+              "M05:1"
+            ],
+            "decision_reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다."
+          },
+          {
+            "keypoint_id": "k2",
+            "expected_status": "unconfirmed",
+            "actual_status": "unconfirmed",
+            "expected_missing": true,
+            "actual_missing": true,
+            "correct": true,
+            "evidence_segment_ids": [],
+            "decision_reason": "로컬 모델이 핵심 항목의 설명을 아직 확인하지 못했습니다."
+          },
+          {
+            "keypoint_id": "k3",
+            "expected_status": "uncertain",
+            "actual_status": "uncertain",
+            "expected_missing": false,
+            "actual_missing": false,
+            "correct": true,
+            "evidence_segment_ids": [
+              "M05:1"
+            ],
+            "decision_reason": "로컬 모델이 관련 발화의 모순·불일치 또는 불확실성을 판단했습니다."
+          },
+          {
+            "keypoint_id": "k4",
+            "expected_status": "explained",
+            "actual_status": "explained",
+            "expected_missing": false,
+            "actual_missing": false,
+            "correct": true,
+            "evidence_segment_ids": [
+              "M05:1"
+            ],
+            "decision_reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다."
+          }
+        ],
+        "errors": []
+      },
+      {
+        "id": "M06",
+        "category": "two_injection",
+        "correct": true,
+        "points": [
+          {
+            "keypoint_id": "k1",
+            "expected_status": "unconfirmed",
+            "actual_status": "unconfirmed",
+            "expected_missing": false,
+            "actual_missing": false,
+            "correct": true,
+            "evidence_segment_ids": [],
+            "decision_reason": "로컬 모델이 핵심 항목의 설명을 아직 확인하지 못했습니다."
+          },
+          {
+            "keypoint_id": "k2",
+            "expected_status": "unconfirmed",
+            "actual_status": "unconfirmed",
+            "expected_missing": false,
+            "actual_missing": false,
+            "correct": true,
+            "evidence_segment_ids": [],
+            "decision_reason": "로컬 모델이 핵심 항목의 설명을 아직 확인하지 못했습니다."
+          }
+        ],
+        "errors": []
+      },
+      {
+        "id": "M07",
+        "category": "two_continuation",
+        "correct": true,
+        "points": [
+          {
+            "keypoint_id": "k1",
+            "expected_status": "explained",
+            "actual_status": "explained",
+            "expected_missing": false,
+            "actual_missing": false,
+            "correct": true,
+            "evidence_segment_ids": [
+              "M07:1",
+              "M07:2"
+            ],
+            "decision_reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다."
+          },
+          {
+            "keypoint_id": "k2",
+            "expected_status": "explained",
+            "actual_status": "explained",
+            "expected_missing": false,
+            "actual_missing": false,
+            "correct": true,
+            "evidence_segment_ids": [
+              "M07:1",
+              "M07:2"
+            ],
+            "decision_reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다."
+          }
+        ],
+        "errors": []
+      },
+      {
+        "id": "M08",
+        "category": "two_correction",
+        "correct": true,
+        "points": [
+          {
+            "keypoint_id": "k1",
+            "expected_status": "explained",
+            "actual_status": "explained",
+            "expected_missing": false,
+            "actual_missing": false,
+            "correct": true,
+            "evidence_segment_ids": [
+              "M08:1",
+              "M08:2"
+            ],
+            "decision_reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다."
+          },
+          {
+            "keypoint_id": "k2",
+            "expected_status": "explained",
+            "actual_status": "explained",
+            "expected_missing": false,
+            "actual_missing": false,
+            "correct": true,
+            "evidence_segment_ids": [
+              "M08:1",
+              "M08:2"
+            ],
+            "decision_reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다."
+          }
+        ],
+        "errors": []
+      },
+      {
+        "id": "P01",
+        "category": "uncategorized",
+        "correct": true,
+        "points": [
+          {
+            "keypoint_id": "k1",
+            "expected_status": "explained",
+            "actual_status": "explained",
+            "expected_missing": false,
+            "actual_missing": false,
+            "correct": true,
+            "evidence_segment_ids": [
+              "P01:1",
+              "P01:2",
+              "P01:3"
+            ],
+            "decision_reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다."
+          }
+        ],
+        "errors": []
+      },
+      {
+        "id": "P02",
+        "category": "uncategorized",
+        "correct": true,
+        "points": [
+          {
+            "keypoint_id": "k1",
+            "expected_status": "uncertain",
+            "actual_status": "uncertain",
+            "expected_missing": false,
+            "actual_missing": false,
+            "correct": true,
+            "evidence_segment_ids": [
+              "P02:1",
+              "P02:2"
+            ],
+            "decision_reason": "대본의 숫자·단위를 발화 근거에서 확인하지 못해 완료 판단을 보류합니다."
+          }
+        ],
+        "errors": []
+      },
+      {
+        "id": "P03",
+        "category": "uncategorized",
+        "correct": true,
+        "points": [
+          {
+            "keypoint_id": "k1",
+            "expected_status": "uncertain",
+            "actual_status": "uncertain",
+            "expected_missing": false,
+            "actual_missing": false,
+            "correct": true,
+            "evidence_segment_ids": [
+              "P03:1",
+              "P03:2"
+            ],
+            "decision_reason": "문장 끝이 미완성 표현입니다. 이어 말한 내용을 함께 확인합니다."
+          }
+        ],
+        "errors": []
+      },
+      {
+        "id": "P04",
+        "category": "uncategorized",
+        "correct": true,
+        "points": [
+          {
+            "keypoint_id": "k1",
+            "expected_status": "uncertain",
+            "actual_status": "uncertain",
+            "expected_missing": false,
+            "actual_missing": false,
+            "correct": true,
+            "evidence_segment_ids": [
+              "P04:1",
+              "P04:2"
+            ],
+            "decision_reason": "로컬 모델이 관련 발화의 모순·불일치 또는 불확실성을 판단했습니다."
+          }
+        ],
+        "errors": []
+      }
+    ]
+  },
+  "native_microphone_smoke": {
+    "source": "MacBook built-in microphone capturing example ko.wav played on current system speaker output; not a human microphone accuracy test",
+    "device": {
+      "device_id": 0,
+      "name": "MacBook Pro 마이크",
+      "sample_rate": 48000
+    },
+    "captured_audio_sec": 5.824,
+    "speech_audio_sec": 2.894,
+    "segments": 1,
+    "is_lossless": true,
+    "overrun_count": 0,
+    "dropped_chunks": 0,
+    "dropped_segments": 0,
+    "audio_error": null,
+    "issues": [],
+    "session_status": "ended",
+    "point_statuses": {
+      "script-1": "explained",
+      "script-2": "unconfirmed"
+    },
+    "model_request_wall_ms": [
+      1320.5534589942545
+    ],
+    "last_audio_level": {
+      "dbfs": -48.3,
+      "peak_dbfs": -42.6,
+      "received_sec": 5.632
+    },
+    "passed": true
+  },
+  "human_presentation_accuracy_status": "NOT_RUN",
+  "long_concurrent_microphone_status": "NOT_RUN",
+  "human_speech_end_to_screen_latency_status": "NOT_RUN",
+  "board_status": "NOT_RUN"
+}

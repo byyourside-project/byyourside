@@ -1,0 +1,103 @@
+{
+  "session_id": "7385d7b7d07b40f4b191da40c7cac719",
+  "status": "ended",
+  "states": {
+    "intro-purpose": {
+      "status": "explained",
+      "reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다.",
+      "evidence_segment_ids": [
+        "manual:1"
+      ]
+    },
+    "intro-local": {
+      "status": "explained",
+      "reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다.",
+      "evidence_segment_ids": [
+        "manual:1"
+      ]
+    },
+    "pipeline-split": {
+      "status": "unconfirmed",
+      "reason": "아직 확인되지 않았습니다.",
+      "evidence_segment_ids": []
+    },
+    "pipeline-policy": {
+      "status": "unconfirmed",
+      "reason": "아직 확인되지 않았습니다.",
+      "evidence_segment_ids": []
+    },
+    "next-evaluation": {
+      "status": "unconfirmed",
+      "reason": "아직 확인되지 않았습니다.",
+      "evidence_segment_ids": []
+    },
+    "next-board": {
+      "status": "unconfirmed",
+      "reason": "아직 확인되지 않았습니다.",
+      "evidence_segment_ids": []
+    }
+  },
+  "quality_issues": null,
+  "events": [
+    {
+      "event_id": 2,
+      "session_id": "7385d7b7d07b40f4b191da40c7cac719",
+      "type": "coach_configured",
+      "elapsed_sec": 0.00026354100555181503,
+      "provider": "ollama_local",
+      "model": "qwen3:14b",
+      "model_info": {
+        "name": "qwen3:14b",
+        "digest": "bdbd181c33f2ed1b31c972991882db3cf4d192569092138a7d29e973cd9debe8",
+        "size": 9276198565,
+        "details": {
+          "parent_model": "",
+          "format": "gguf",
+          "family": "qwen3",
+          "families": [
+            "qwen3"
+          ],
+          "parameter_size": "14.8B",
+          "quantization_level": "Q4_K_M",
+          "context_length": 40960,
+          "embedding_length": 5120
+        }
+      },
+      "warm_up_metrics": {
+        "wall_ms": 1059.5005410141312,
+        "total_duration": 1053808292,
+        "load_duration": 10907708,
+        "prompt_eval_count": 467,
+        "prompt_eval_duration": 318602000,
+        "eval_count": 10,
+        "eval_duration": 705911000
+      },
+      "timeout_sec": 5.0
+    },
+    {
+      "event_id": 7,
+      "session_id": "7385d7b7d07b40f4b191da40c7cac719",
+      "type": "coaching_inference",
+      "elapsed_sec": 2.831517958024051,
+      "provider": "ollama_local",
+      "version": 1,
+      "revision": 1,
+      "wall_ms": 2377.1975000272505,
+      "metrics": {
+        "wall_ms": 2376.5581250190735,
+        "total_duration": 2334552417,
+        "load_duration": 26431209,
+        "prompt_eval_count": 564,
+        "prompt_eval_duration": 805337000,
+        "eval_count": 19,
+        "eval_duration": 1479897000
+      }
+    },
+    {
+      "event_id": 10,
+      "session_id": "7385d7b7d07b40f4b191da40c7cac719",
+      "type": "session_ended",
+      "elapsed_sec": 27.146428500011098
+    }
+  ]
+}

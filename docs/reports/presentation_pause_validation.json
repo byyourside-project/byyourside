@@ -1,0 +1,180 @@
+{
+  "schema_version": 1,
+  "scope": "Development verification on macOS; not human microphone or board verification",
+  "prompt_version": "semantic_v12_pause_evidence",
+  "semantic_multikeypoint_and_pause": {
+    "total_cases": 10,
+    "correct_cases": 10,
+    "accuracy": 1.0,
+    "status": "CHANGES_REQUIRED",
+    "latency": {
+      "unit": "ms",
+      "scope": "all model calls, including any initial load; not audio-to-screen latency",
+      "count": 14,
+      "p50": 2044.3465000134893,
+      "p95": 3802.3470000043744,
+      "max": 3892.105499980971,
+      "first_call": 3560.0477079860866,
+      "subsequent_p95": 3809.251500002574,
+      "budget_ms": 2000.0
+    },
+    "gate_breakdown": {
+      "development_accuracy": true,
+      "response_validity": true,
+      "false_missing_rate": true,
+      "false_explained_rate": true,
+      "request_latency": false
+    }
+  },
+  "pause_semantics": {
+    "total_cases": 4,
+    "correct_cases": 4,
+    "accuracy": 1.0,
+    "status": "DEVELOPMENT_PASS",
+    "latency": {
+      "unit": "ms",
+      "scope": "all model calls, including any initial load; not audio-to-screen latency",
+      "count": 9,
+      "p50": 1271.763041964732,
+      "p95": 1419.2506165942177,
+      "max": 1425.8775829803199,
+      "first_call": 1301.901250029914,
+      "subsequent_p95": 1420.0789873924805,
+      "budget_ms": 2000.0
+    }
+  },
+  "concurrent_smoke_note": "Final semantic_v12_pause_evidence prompt; real STT and LLM, synthetic input paced to absolute sample deadlines. Not human microphone or board verification.",
+  "rejected_candidate": {
+    "model": "qwen3:4b",
+    "multi_case_correct": 7,
+    "total_cases": 8,
+    "false_explained": 1,
+    "adopted": false
+  },
+  "clocked_concurrent_smoke": {
+    "source": "real STT and LLM, synthetic microphone feeding paced to absolute sample deadlines; no human mic",
+    "duration_sec": 25.472,
+    "segments": 4,
+    "is_lossless": true,
+    "stt_delay_stats": {
+      "count": 4,
+      "mean": 585.9500932565425,
+      "min": 556.2569579924457,
+      "p50": 575.7893745030742,
+      "p95": 627.743566071149,
+      "p99": 634.3204460362904,
+      "max": 635.9646660275757
+    },
+    "issues": [],
+    "coaching": [
+      {
+        "event_id": 10,
+        "session_id": "84d56290fb564b9580c53a1c729bf9ad",
+        "type": "coaching_inference",
+        "elapsed_sec": 7.284911583992653,
+        "provider": "ollama_local",
+        "outcome": "response_validated",
+        "version": 1,
+        "revision": 1,
+        "wall_ms": 2979.0723330224864,
+        "metrics": {
+          "wall_ms": 2978.8557499996386,
+          "total_duration": 2937824792,
+          "load_duration": 23360125,
+          "prompt_eval_count": 848,
+          "prompt_eval_duration": 391170000,
+          "eval_count": 33,
+          "eval_duration": 2502407000
+        }
+      },
+      {
+        "event_id": 17,
+        "session_id": "84d56290fb564b9580c53a1c729bf9ad",
+        "type": "coaching_inference",
+        "elapsed_sec": 13.61248595896177,
+        "provider": "ollama_local",
+        "outcome": "response_validated",
+        "version": 1,
+        "revision": 2,
+        "wall_ms": 3148.9941669860855,
+        "metrics": {
+          "wall_ms": 3148.833832994569,
+          "total_duration": 3114841500,
+          "load_duration": 19155792,
+          "prompt_eval_count": 884,
+          "prompt_eval_duration": 317719000,
+          "eval_count": 35,
+          "eval_duration": 2762543000
+        }
+      },
+      {
+        "event_id": 23,
+        "session_id": "84d56290fb564b9580c53a1c729bf9ad",
+        "type": "coaching_inference",
+        "elapsed_sec": 19.804067791963462,
+        "provider": "ollama_local",
+        "outcome": "response_validated",
+        "version": 1,
+        "revision": 3,
+        "wall_ms": 3297.4407500005327,
+        "metrics": {
+          "wall_ms": 3297.286916000303,
+          "total_duration": 3256669458,
+          "load_duration": 30484375,
+          "prompt_eval_count": 920,
+          "prompt_eval_duration": 321970000,
+          "eval_count": 37,
+          "eval_duration": 2863582000
+        }
+      },
+      {
+        "event_id": 31,
+        "session_id": "84d56290fb564b9580c53a1c729bf9ad",
+        "type": "coaching_inference",
+        "elapsed_sec": 26.252194250002503,
+        "provider": "ollama_local",
+        "outcome": "response_validated",
+        "version": 1,
+        "revision": 4,
+        "wall_ms": 3604.269292030949,
+        "metrics": {
+          "wall_ms": 3603.83149998961,
+          "total_duration": 3570166291,
+          "load_duration": 13483333,
+          "prompt_eval_count": 956,
+          "prompt_eval_duration": 315679000,
+          "eval_count": 39,
+          "eval_duration": 3224443000
+        }
+      }
+    ],
+    "states": {
+      "script-1": {
+        "status": "explained",
+        "reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다.",
+        "evidence_segment_ids": [
+          "pause_clocked_14b:1",
+          "pause_clocked_14b:2",
+          "pause_clocked_14b:3",
+          "pause_clocked_14b:4"
+        ]
+      },
+      "script-2": {
+        "status": "unconfirmed",
+        "reason": "로컬 모델이 핵심 항목의 설명을 아직 확인하지 못했습니다.",
+        "evidence_segment_ids": []
+      },
+      "script-3": {
+        "status": "unconfirmed",
+        "reason": "로컬 모델이 핵심 항목의 설명을 아직 확인하지 못했습니다.",
+        "evidence_segment_ids": []
+      }
+    }
+  },
+  "regression_tests": {
+    "command": ".venv/bin/python -m unittest discover -s tests -v",
+    "tests": 144,
+    "duration_sec": 122.233,
+    "result": "OK"
+  }
+}

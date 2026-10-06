@@ -1,0 +1,473 @@
+{
+  "scope": "Real WAV STT and installed local LLM with simulated pace timestamps; real Yuna WAV synthesis, no speaker playback",
+  "model": "qwen3:8b",
+  "model_info": {
+    "name": "qwen3:8b",
+    "digest": "500a1f067a9f782620b40bee6f7b0c89e17ae61f686b92c24933e4ca4b2b8b41",
+    "size": 5225388164,
+    "details": {
+      "parent_model": "",
+      "format": "gguf",
+      "family": "qwen3",
+      "families": [
+        "qwen3"
+      ],
+      "parameter_size": "8.2B",
+      "quantization_level": "Q4_K_M",
+      "context_length": 40960,
+      "embedding_length": 4096
+    }
+  },
+  "prompt_version": "semantic_v15_exact_latest_confirmation",
+  "stt_transcript": "조 금만 생각 을 하 면서 살 면 훨씬 편할 거야.",
+  "stt_segments": 1,
+  "exact_script_reading": [
+    {
+      "line": 1,
+      "text": "발표자의 시간과 핵심 내용 설명을 돕습니다.",
+      "state": {
+        "status": "explained",
+        "reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다.",
+        "evidence_segment_ids": [
+          "exact:1"
+        ]
+      },
+      "guard_decisions": [],
+      "exact_match_fallbacks": [],
+      "passed": true
+    },
+    {
+      "line": 2,
+      "text": "음성 인식은 로컬에서 실행합니다.",
+      "state": {
+        "status": "explained",
+        "reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다.",
+        "evidence_segment_ids": [
+          "exact:2"
+        ]
+      },
+      "guard_decisions": [],
+      "exact_match_fallbacks": [],
+      "passed": true
+    },
+    {
+      "line": 3,
+      "text": "발화를 최대 4초 구간으로 분할합니다.",
+      "state": {
+        "status": "explained",
+        "reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다.",
+        "evidence_segment_ids": [
+          "exact:3"
+        ]
+      },
+      "guard_decisions": [],
+      "exact_match_fallbacks": [],
+      "passed": true
+    }
+  ],
+  "speaker_playback": false,
+  "system_volume_changed": false,
+  "physical_microphone": false,
+  "human_hearing_verified": false,
+  "cases": [
+    {
+      "direction": "fast",
+      "speech_end_sec": 20,
+      "planned_end_sec": 37.77777777777778,
+      "progress": {
+        "confirmed_units": 17,
+        "total_units": 27,
+        "fraction": 0.6296296296296297,
+        "baseline_units_per_min": 27.0,
+        "observed_units_per_min": 51.0,
+        "planned_elapsed_sec": 37.77777777777778,
+        "ratio": 1.8888888888888888,
+        "reliable": true,
+        "estimated_total_sec": 31.76470588235294,
+        "measured_elapsed_sec": 20,
+        "plan_total_duration_sec": 60.0,
+        "processing_delay_sec": 2.0,
+        "evidence_age_sec": 8.0,
+        "pace": "fast",
+        "pace_reason": "목표 발표 시간보다 빠르게 진행하고 있습니다.",
+        "missing_ids": [],
+        "position_index": 0,
+        "next_text": "발표 시간을 관리합니다.",
+        "units": [
+          {
+            "keypoint_id": "script-1",
+            "text": "조금만 생각을 하면서 살면 훨씬 편할 거야.",
+            "units": 17,
+            "planned_start_sec": 0,
+            "planned_end_sec": 37.77777777777778,
+            "status": "explained",
+            "reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다.",
+            "evidence_segment_ids": [
+              "manual:1"
+            ]
+          },
+          {
+            "keypoint_id": "script-2",
+            "text": "발표 시간을 관리합니다.",
+            "units": 10,
+            "planned_start_sec": 37.77777777777778,
+            "planned_end_sec": 60.0,
+            "status": "unconfirmed",
+            "reason": "로컬 모델이 핵심 항목의 설명을 아직 확인하지 못했습니다.",
+            "evidence_segment_ids": []
+          }
+        ]
+      },
+      "voice_events": [
+        {
+          "event_id": 3,
+          "session_id": "49f074acd89248e3922e50966412ec2d",
+          "type": "voice_configured",
+          "elapsed_sec": 2.8542010113596916e-05,
+          "enabled": true,
+          "scope": "pace",
+          "generation": 1,
+          "provider": "macOS say / Yuna"
+        },
+        {
+          "event_id": 10,
+          "session_id": "49f074acd89248e3922e50966412ec2d",
+          "type": "voice_queued",
+          "elapsed_sec": 28.0,
+          "key": "pace:fast:1",
+          "message": "계획보다 빠릅니다. 조금 천천히 말씀해 주세요.",
+          "voice_generation": 1
+        },
+        {
+          "event_id": 11,
+          "session_id": "49f074acd89248e3922e50966412ec2d",
+          "type": "voice_started",
+          "elapsed_sec": 28.0,
+          "key": "pace:fast:1",
+          "message": "계획보다 빠릅니다. 조금 천천히 말씀해 주세요.",
+          "voice_generation": 1
+        },
+        {
+          "event_id": 12,
+          "session_id": "49f074acd89248e3922e50966412ec2d",
+          "type": "voice_completed",
+          "elapsed_sec": 28.0,
+          "key": "pace:fast:1",
+          "message": "계획보다 빠릅니다. 조금 천천히 말씀해 주세요.",
+          "voice_generation": 1,
+          "returncode": 0
+        }
+      ],
+      "synthesized": {
+        "frames": 77120,
+        "sample_rate": 22050,
+        "duration_sec": 3.4975056689342403,
+        "peak": 0.616302490234375
+      },
+      "output_files": [
+        "logs/pace_voice_validation/50c3becc44ca/fast_1.wav"
+      ],
+      "passed": true
+    },
+    {
+      "direction": "slow",
+      "speech_end_sec": 100,
+      "planned_end_sec": 37.77777777777778,
+      "progress": {
+        "confirmed_units": 17,
+        "total_units": 27,
+        "fraction": 0.6296296296296297,
+        "baseline_units_per_min": 27.0,
+        "observed_units_per_min": 10.200000000000001,
+        "planned_elapsed_sec": 37.77777777777778,
+        "ratio": 0.37777777777777777,
+        "reliable": true,
+        "estimated_total_sec": 158.8235294117647,
+        "measured_elapsed_sec": 100,
+        "plan_total_duration_sec": 60.0,
+        "processing_delay_sec": 2.0,
+        "evidence_age_sec": 14.0,
+        "pace": "slow",
+        "pace_reason": "목표 발표 시간보다 느리게 진행하고 있습니다.",
+        "missing_ids": [],
+        "position_index": 0,
+        "next_text": "발표 시간을 관리합니다.",
+        "units": [
+          {
+            "keypoint_id": "script-1",
+            "text": "조금만 생각을 하면서 살면 훨씬 편할 거야.",
+            "units": 17,
+            "planned_start_sec": 0,
+            "planned_end_sec": 37.77777777777778,
+            "status": "explained",
+            "reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다.",
+            "evidence_segment_ids": [
+              "manual:1"
+            ]
+          },
+          {
+            "keypoint_id": "script-2",
+            "text": "발표 시간을 관리합니다.",
+            "units": 10,
+            "planned_start_sec": 37.77777777777778,
+            "planned_end_sec": 60.0,
+            "status": "unconfirmed",
+            "reason": "로컬 모델이 핵심 항목의 설명을 아직 확인하지 못했습니다.",
+            "evidence_segment_ids": []
+          }
+        ]
+      },
+      "voice_events": [
+        {
+          "event_id": 3,
+          "session_id": "78b4670a0f0741ac8edf5a4b2cf9a962",
+          "type": "voice_configured",
+          "elapsed_sec": 3.3917021937668324e-05,
+          "enabled": true,
+          "scope": "pace",
+          "generation": 1,
+          "provider": "macOS say / Yuna"
+        },
+        {
+          "event_id": 31,
+          "session_id": "78b4670a0f0741ac8edf5a4b2cf9a962",
+          "type": "voice_queued",
+          "elapsed_sec": 114.0,
+          "key": "pace:slow:1",
+          "message": "계획보다 느립니다. 조금 더 빠르게 이어가 주세요.",
+          "voice_generation": 1
+        },
+        {
+          "event_id": 32,
+          "session_id": "78b4670a0f0741ac8edf5a4b2cf9a962",
+          "type": "voice_started",
+          "elapsed_sec": 114.0,
+          "key": "pace:slow:1",
+          "message": "계획보다 느립니다. 조금 더 빠르게 이어가 주세요.",
+          "voice_generation": 1
+        },
+        {
+          "event_id": 33,
+          "session_id": "78b4670a0f0741ac8edf5a4b2cf9a962",
+          "type": "voice_completed",
+          "elapsed_sec": 114.0,
+          "key": "pace:slow:1",
+          "message": "계획보다 느립니다. 조금 더 빠르게 이어가 주세요.",
+          "voice_generation": 1,
+          "returncode": 0
+        }
+      ],
+      "synthesized": {
+        "frames": 78400,
+        "sample_rate": 22050,
+        "duration_sec": 3.5555555555555554,
+        "peak": 0.623291015625
+      },
+      "output_files": [
+        "logs/pace_voice_validation/50c3becc44ca/slow_1.wav"
+      ],
+      "passed": true
+    },
+    {
+      "direction": "on_plan",
+      "speech_end_sec": 37.77777777777778,
+      "planned_end_sec": 37.77777777777778,
+      "progress": {
+        "confirmed_units": 17,
+        "total_units": 27,
+        "fraction": 0.6296296296296297,
+        "baseline_units_per_min": 27.0,
+        "observed_units_per_min": 27.0,
+        "planned_elapsed_sec": 37.77777777777778,
+        "ratio": 1.0,
+        "reliable": true,
+        "estimated_total_sec": 60.0,
+        "measured_elapsed_sec": 37.77777777777778,
+        "plan_total_duration_sec": 60.0,
+        "processing_delay_sec": 1.999999999999993,
+        "evidence_age_sec": 7.999999999999993,
+        "pace": "on_plan",
+        "pace_reason": "목표 발표 시간에 맞는 속도로 진행하고 있습니다.",
+        "missing_ids": [],
+        "position_index": 0,
+        "next_text": "발표 시간을 관리합니다.",
+        "units": [
+          {
+            "keypoint_id": "script-1",
+            "text": "조금만 생각을 하면서 살면 훨씬 편할 거야.",
+            "units": 17,
+            "planned_start_sec": 0,
+            "planned_end_sec": 37.77777777777778,
+            "status": "explained",
+            "reason": "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다.",
+            "evidence_segment_ids": [
+              "manual:1"
+            ]
+          },
+          {
+            "keypoint_id": "script-2",
+            "text": "발표 시간을 관리합니다.",
+            "units": 10,
+            "planned_start_sec": 37.77777777777778,
+            "planned_end_sec": 60.0,
+            "status": "unconfirmed",
+            "reason": "로컬 모델이 핵심 항목의 설명을 아직 확인하지 못했습니다.",
+            "evidence_segment_ids": []
+          }
+        ]
+      },
+      "voice_events": [
+        {
+          "event_id": 3,
+          "session_id": "25c153ee9fc148b0a8d3a76f12bcc298",
+          "type": "voice_configured",
+          "elapsed_sec": 8.712499402463436e-05,
+          "enabled": true,
+          "scope": "pace",
+          "generation": 1,
+          "provider": "macOS say / Yuna"
+        }
+      ],
+      "synthesized": null,
+      "output_files": [],
+      "passed": true
+    }
+  ],
+  "passed": true,
+  "date": "2026-10-05",
+  "branch": "codex/presentation-pace-voice",
+  "base_commit": "53cce34",
+  "raw_evidence": "logs/pace_voice_validation/50c3becc44ca/validation.json",
+  "source_sha256": {
+    "src/script_coaching.py": "d14a2b3949c3c0c9a375678eeb404d5427af3b17de369e405d077c9261cdd323",
+    "src/presentation_server.py": "2a1add3f094c0f1e6fdfeaa7e83d39db30e715f04695c06909ad27124c6df847",
+    "src/voice_feedback.py": "531f984a952ec16d9d90bbd827828d8d7194f1ca5a2af77c3cb8ab0f70e5f7dd",
+    "web/presentation/app.js": "faf1f617eed1430c783e79c6ac709efda827f2c0158923086cefd35bd31de58e",
+    "web/presentation/index.html": "52e06c56b5dab841423762e0c45e7e5194496752db3e1e4d2145eb04fd9a8103",
+    "web/presentation/style.css": "8ade330741a83d826b095ef2c5aada94cb716d1cfab3e622857d4b0fc265b4b8",
+    "scripts/validate_pace_voice.py": "4ee06efce41bf20fec45e2713afb76d73f33c688a7d938584275e80f8c59a677",
+    "tests/test_pace_voice.py": "5c1456b9d27a21980631b3311398030b47441f07852cb198d2dbe1b2836f6f37",
+    "tests/test_voice_feedback.py": "6041473ad9d86ffafad0b9ecf4563e88f5180951d87ad201de0c561cef858c79",
+    "tests/test_script_coaching.py": "7a6e38a79240e2c97c2f0bd18700bdd22b1f9f62bff8f6a5bcf4349445d019e8",
+    "tests/test_presentation_ui.cjs": "202e7214c9ca5e09669c0a9d233691d60df7fd27c9069f0e7d4a71a201087d7b",
+    "src/ollama_coach.py": "5f59cdba2609785e328f50cfe0ede13a26af94c751e602f575b757f58114d34a",
+    "tests/test_ollama_coach.py": "6932cd6f3a8055f9750631a32461cdc5df75249909eb27f673d4417fb119288a"
+  },
+  "checks": {
+    "targeted_python": {
+      "tests": 83,
+      "passed": true,
+      "log": "logs/pace_final_targeted.txt"
+    },
+    "ui_dom": {
+      "tests": 42,
+      "passed": true,
+      "log": "logs/pace_ui_validation.txt"
+    },
+    "independent_fake_voice_review": {
+      "tests": 29,
+      "passed": true
+    },
+    "syntax": {
+      "python": true,
+      "javascript": true
+    },
+    "browser_manual": {
+      "input": "manual transcript; real wall clock and local LLM",
+      "target_duration_sec": 600,
+      "fast_alert_events": [
+        {
+          "event_id": 13,
+          "session_id": "04b687c79bb345dd88f881ec48a9bf4d",
+          "type": "alert_shown",
+          "elapsed_sec": 34.068613666982856,
+          "key": "pace:fast:1",
+          "message": "계획보다 빠릅니다. 조금 천천히 말씀해 주세요.",
+          "priority": 1,
+          "slide_id": null,
+          "version": null,
+          "shown_sec": 34.06859625002835,
+          "expires_sec": 44.06859625002835
+        },
+        {
+          "event_id": 24,
+          "session_id": "04b687c79bb345dd88f881ec48a9bf4d",
+          "type": "alert_shown",
+          "elapsed_sec": 96.75400900002569,
+          "key": "pace:fast:2",
+          "message": "계획보다 빠릅니다. 조금 천천히 말씀해 주세요.",
+          "priority": 1,
+          "slide_id": null,
+          "version": null,
+          "shown_sec": 96.75399766699411,
+          "expires_sec": 106.75399766699411
+        }
+      ],
+      "stale_evidence_retractions": [
+        {
+          "event_id": 14,
+          "session_id": "04b687c79bb345dd88f881ec48a9bf4d",
+          "type": "alert_retracted",
+          "elapsed_sec": 41.0103580839932,
+          "key": "pace:fast:1",
+          "reason": "pace_evidence_unreliable"
+        },
+        {
+          "event_id": 25,
+          "session_id": "04b687c79bb345dd88f881ec48a9bf4d",
+          "type": "alert_retracted",
+          "elapsed_sec": 103.75248166697565,
+          "key": "pace:fast:2",
+          "reason": "pace_evidence_unreliable"
+        }
+      ],
+      "voice_enabled": false,
+      "speaker_playback": false,
+      "ready_screenshot": "docs/reports/presentation_pace_voice_ready.png",
+      "stale_evidence_screenshot": "docs/reports/presentation_pace_voice_waiting.png",
+      "numeric_model_false_negative_found": true,
+      "passed": true,
+      "numeric_model_false_negative_recovery": "Latest complete literal reading fallback covered by mock regression; actual first-three-line local-model replay also confirmed all lines."
+    },
+    "before_exact_fallback_full_python": {
+      "tests": 235,
+      "passed": true,
+      "duration_sec": 133.749,
+      "exit_code": 0,
+      "log": "logs/pace_final_full.txt"
+    },
+    "exact_latest_fallback": {
+      "tests": 22,
+      "new_tests": 10,
+      "passed": true,
+      "duration_sec": 6.299,
+      "method": "Mock local-model -1, uncertain and negative context cases; existing HTTP fixtures"
+    },
+    "full_python": {
+      "tests": 245,
+      "passed": true,
+      "duration_sec": 134.697,
+      "exit_code": 0,
+      "log": "logs/pace_final_full_v15.txt"
+    },
+    "validated_source_hashes_match": true,
+    "final_server": {
+      "url": "http://127.0.0.1:8765/",
+      "session": null,
+      "audio_status": "idle",
+      "voice_enabled": false,
+      "voice_scope": "pace",
+      "passed": true
+    }
+  },
+  "limitations": [
+    "Speech end timestamps are controlled inputs, not real human pacing measurements.",
+    "No physical microphone capture or speaker/headphone listening was performed in this turn.",
+    "Actual board and long-duration simultaneous load remain to be checked."
+  ],
+  "development_findings_resolved": [
+    "Removed validation-only soundfile dependency; used existing scipy WAV reader.",
+    "Advanced the controlled test clock beyond shared alert cooldown for the over-time slow case.",
+    "A live model missed the exact numeric script line; added narrowly guarded latest literal recovery and mock false-negative coverage."
+  ]
+}

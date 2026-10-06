@@ -84,7 +84,8 @@ class PipelineResult:
 class SpeechPipeline:
     """Unified audio pipeline supporting direct WAV, simulated replay, and live microphone."""
 
-    def __init__(self, config: Optional[PipelineConfig] = None, stt: Optional[Any] = None):
+    def __init__(self, config: Optional[PipelineConfig] = None, stt: Optional[Any] = None,
+                 event_sink=None, terminal_output: bool = True):
         self.config = config or PipelineConfig()
         self.config.validate()
 
@@ -93,6 +94,12 @@ class SpeechPipeline:
         self._active_workers: List[threading.Thread] = []
         self._worker_lock = threading.Lock()
         self.last_run_timing: Dict[str, Any] = {}
+        self.event_sink = event_sink
+        self.terminal_output = terminal_output
+
+    def _logger(self, run_id):
+        return StructuredLogger(run_id=run_id, log_dir=self.config.log_dir,
+                                terminal_output=self.terminal_output, event_sink=self.event_sink)
 
     def _call_stt_transcribe(
         self,
@@ -143,7 +150,7 @@ class SpeechPipeline:
                 self.config.stt.batch_timeout_base_sec + total_audio_dur * self.config.stt.batch_timeout_per_second
             )
 
-        logger = StructuredLogger(run_id=run_id, log_dir=self.config.log_dir)
+        logger = self._logger(run_id)
         logger.log_event("run_start", {
             "mode": "wav_direct_stt",
             "wav_path": wav_path,
@@ -250,7 +257,7 @@ class SpeechPipeline:
         samples, sr = load_and_normalize_audio(wav_path, target_sr=16000)
         total_audio_dur = len(samples) / float(sr)
 
-        logger = StructuredLogger(run_id=run_id, log_dir=self.config.log_dir)
+        logger = self._logger(run_id)
         logger.log_event("run_start", {
             "mode": "wav_vad",
             "wav_path": wav_path,
@@ -416,7 +423,7 @@ class SpeechPipeline:
 
         effective_req_timeout = request_timeout if request_timeout is not None else self.config.stt.request_timeout_sec
 
-        logger = StructuredLogger(run_id=run_id, log_dir=self.config.log_dir)
+        logger = self._logger(run_id)
         logger.log_event("run_start", {
             "mode": "replay",
             "wav_path": wav_path,
@@ -459,6 +466,7 @@ class SpeechPipeline:
             nonlocal vad_exception, dropped_segments_count
             try:
                 self.vad.reset()
+                endpoint_sample = 0
                 while not abort_event.is_set():
                     try:
                         item = audio_queue.get(timeout=0.1)
@@ -494,6 +502,10 @@ class SpeechPipeline:
                                     drop_ts=time.perf_counter()
                                 ))
                                 break
+                    watermark = self.vad.silence_watermark_sample
+                    if watermark > endpoint_sample:
+                        endpoint_sample = watermark
+                        logger.log_event("speech_endpoint", {"audio_end_ms": watermark / self.config.vad.sample_rate * 1000})
                     audio_queue.task_done()
 
                 if not abort_event.is_set():
@@ -819,13 +831,32 @@ class SpeechPipeline:
 
 
 
+    def _transcribe_live_segment(self, seg, logger, abort_event, timeout, recover):
+        """Live-only retry on the same retained samples; benchmark policy stays fail-fast."""
+        try:
+            text, infer_ms = self._call_stt_transcribe(seg.samples, 16000, abort_event=abort_event, timeout=timeout)
+            return text, infer_ms, "OK"
+        except TimeoutError as exc:
+            if not recover or abort_event.is_set():
+                raise
+            logger.log_event("stt_recovery", {"stage": "retry", "segment_id": seg.segment_id, "error": str(exc)})
+            try:
+                text, infer_ms = self._call_stt_transcribe(seg.samples, 16000, abort_event=abort_event, timeout=timeout)
+                logger.log_event("stt_recovery", {"stage": "resumed", "segment_id": seg.segment_id})
+                return text, infer_ms, "OK"
+            except TimeoutError as retry_exc:
+                logger.log_event("stt_recovery", {"stage": "failed_segment", "segment_id": seg.segment_id, "error": str(retry_exc)})
+                return "", 0.0, "ERROR"
+
     def run_mic(
         self,
         duration_seconds: float = 10.0,
         run_id: Optional[str] = None,
         snapshot_interval_sec: float = 60.0,
         request_timeout: Optional[float] = None,
-        stream_factory: Optional[Any] = None
+        stream_factory: Optional[Any] = None,
+        stop_event: Optional[Any] = None,
+        recover_stt_timeouts: bool = False
     ) -> PipelineResult:
         """
         Live microphone recording and real-time STT pipeline.
@@ -853,14 +884,16 @@ class SpeechPipeline:
 
         effective_req_timeout = request_timeout if request_timeout is not None else self.config.stt.request_timeout_sec
 
-        logger = StructuredLogger(run_id=run_id, log_dir=self.config.log_dir)
+        logger = self._logger(run_id)
         logger.log_event("run_start", {
             "mode": "mic",
             "duration_seconds": duration_seconds,
             "device_sample_rate": in_rate,
+            "device_index": self.config.audio.device_index,
             "target_sample_rate": out_rate,
             "resample_ratio": f"{up}/{down}",
             "request_timeout_sec": effective_req_timeout,
+            "recover_stt_timeouts": recover_stt_timeouts,
             "git_revision": get_git_revision(),
             "clock_origin_perf_counter": stream_start_wall_ts,
             "clock_origin_time": clock_origin_time,
@@ -892,14 +925,20 @@ class SpeechPipeline:
         stt_exception: Optional[Exception] = None
 
         SENTINEL = object()
+        first_audio = threading.Event()
+        last_callback_ts = 0.0
 
         # D [P2] Decoupled callback: acquisition and queue put ONLY (no heavy DSP/resample)
         def mic_callback(indata, frames, time_info, status):
-            nonlocal overrun_count, dropped_audio_chunks, dropped_audio_samples, total_captured_frames
+            nonlocal overrun_count, dropped_audio_chunks, dropped_audio_samples, total_captured_frames, stream_start_wall_ts, last_callback_ts
             if status and status.input_overflow:
                 overrun_count += 1
 
             now = time.perf_counter()
+            last_callback_ts = now
+            if total_captured_frames == 0:
+                stream_start_wall_ts = now - frames / float(in_rate)
+                first_audio.set()
             start_frame = total_captured_frames
             total_captured_frames += frames
             end_frame = total_captured_frames
@@ -939,6 +978,8 @@ class SpeechPipeline:
             nonlocal vad_exception, dropped_segments_count
             try:
                 self.vad.reset()
+                endpoint_sample = 0
+                last_level_ts = 0.0
                 while not abort_event.is_set():
                     try:
                         item = audio_queue.get(timeout=0.1)
@@ -956,6 +997,14 @@ class SpeechPipeline:
                         samples_16k = signal.resample_poly(chunk_item.samples, up, down).astype(np.float32)
                     else:
                         samples_16k = chunk_item.samples
+
+                    if chunk_item.capture_ts - last_level_ts >= .2:
+                        last_level_ts = chunk_item.capture_ts
+                        rms = float(np.sqrt(np.mean(samples_16k ** 2)))
+                        peak = float(np.max(np.abs(samples_16k)))
+                        logger.log_event("audio_level", {"dbfs": round(20 * np.log10(max(rms, 1e-6)), 1),
+                            "peak_dbfs": round(20 * np.log10(max(peak, 1e-6)), 1),
+                            "received_sec": chunk_item.stream_sample_idx_end / float(out_rate)})
 
                     # Pass stream_sample_idx_start to detect gaps from dropped audio chunks
                     ready_segs = self.vad.process_chunk(
@@ -981,6 +1030,10 @@ class SpeechPipeline:
                                     drop_ts=time.perf_counter()
                                 ))
                                 break
+                    watermark = self.vad.silence_watermark_sample
+                    if watermark > endpoint_sample:
+                        endpoint_sample = watermark
+                        logger.log_event("speech_endpoint", {"audio_end_ms": watermark / self.config.vad.sample_rate * 1000})
                     audio_queue.task_done()
 
                 if not abort_event.is_set():
@@ -1019,7 +1072,8 @@ class SpeechPipeline:
 
         # Worker 2: STT worker
         def stt_worker():
-            nonlocal stt_exception, total_infer_sec, total_speech_sec
+            nonlocal stt_exception, total_infer_sec, total_speech_sec, dropped_segments_count
+            consecutive_failures = 0
             try:
                 while not abort_event.is_set():
                     try:
@@ -1041,12 +1095,14 @@ class SpeechPipeline:
                         segment_queue.task_done()
                         break
 
-                    text, infer_ms = self._call_stt_transcribe(
-                        seg.samples,
-                        16000,
-                        abort_event=abort_event,
-                        timeout=effective_req_timeout
-                    )
+                    text, infer_ms, result_status = self._transcribe_live_segment(
+                        seg, logger, abort_event, effective_req_timeout, recover_stt_timeouts)
+                    consecutive_failures = consecutive_failures + 1 if result_status == "ERROR" else 0
+                    if result_status == "ERROR":
+                        dropped_segments_count += 1
+                        dropped_items.append(DroppedItem(item_type="segment", item_id=seg.segment_id,
+                            stream_sample_start=seg.start_sample, stream_sample_end=seg.end_sample,
+                            duration_ms=seg.duration_ms, reason="stt_timeout_after_retry", drop_ts=time.perf_counter()))
 
                     if abort_event.is_set():
                         segment_queue.task_done()
@@ -1088,7 +1144,7 @@ class SpeechPipeline:
                         rtf=rtf,
                         delay_after_speech_ms=delay_after_speech_ms,
                         total_latency_ms=latency_from_start_ms,
-                        text=text
+                        text=text, error_or_dropped_status=result_status
                     )
 
                     segment_results.append({
@@ -1102,9 +1158,11 @@ class SpeechPipeline:
                         "delay_after_speech_ms": delay_after_speech_ms,
                         "continuous_latency_ms": latency_from_start_ms,
                         "infer_ms": infer_ms,
-                        "endpoint_reason": seg.endpoint_reason
+                        "endpoint_reason": seg.endpoint_reason, "status": result_status
                     })
                     segment_queue.task_done()
+                    if consecutive_failures >= 3:
+                        raise TimeoutError("STT failed for three consecutive segments after bounded retries")
             except Exception as e:
                 stt_exception = e
                 abort_event.set()
@@ -1117,24 +1175,41 @@ class SpeechPipeline:
         t_stt.start()
 
         blocksize = self.config.audio.chunk_size_samples
-        start_wall_time = time.time()
+        start_wall_time = time.perf_counter()
         last_snapshot_time = start_wall_time
 
         try:
             try:
-                stream_cls = stream_factory or sd.InputStream
-                with stream_cls(
-                    samplerate=in_rate,
-                    channels=1,
-                    dtype="float32",
-                    blocksize=blocksize,
-                    callback=mic_callback
-                ):
-                    while time.time() - start_wall_time < duration_seconds:
-                        if abort_event.is_set():
+                from src.microphone import open_input_stream, MicrophoneError
+                stream_args = dict(samplerate=in_rate, channels=1, dtype="float32", blocksize=blocksize, callback=mic_callback)
+                if stream_factory is not None:
+                    if self.config.audio.device_index is not None:
+                        stream_args["device"] = self.config.audio.device_index
+                    stream_context = stream_factory(**stream_args)
+                else:
+                    stream_context = open_input_stream(device=self.config.audio.device_index,
+                        expected_name=self.config.audio.device_name, **stream_args)
+                with stream_context:
+                    deadline = time.perf_counter() + 2
+                    while not first_audio.wait(.05):
+                        if stop_event is not None and stop_event.is_set():
+                            break
+                        if time.perf_counter() >= deadline:
+                            raise MicrophoneError("마이크가 열렸지만 입력 프레임을 받지 못했습니다. 입력 장치와 마이크 접근 권한을 확인해 주세요.")
+                    if first_audio.is_set():
+                        self.last_run_timing["stream_start_ts"] = stream_start_wall_ts
+                        logger.log_event("audio_stream_started", {"device_index": self.config.audio.device_index,
+                            "device_name": self.config.audio.device_name, "sample_rate": in_rate,
+                            "clock_origin_perf_counter": stream_start_wall_ts})
+                    start_wall_time = time.perf_counter()
+                    last_snapshot_time = start_wall_time
+                    while time.perf_counter() - start_wall_time < duration_seconds:
+                        if stream_factory is None and first_audio.is_set() and time.perf_counter() - last_callback_ts > 2:
+                            raise MicrophoneError("마이크 입력이 중단됐습니다. 장치 연결을 확인하고 마이크를 다시 연결해 주세요.")
+                        if abort_event.is_set() or (stop_event is not None and stop_event.is_set()):
                             break
                         time.sleep(0.05)
-                        now = time.time()
+                        now = time.perf_counter()
                         if now - last_snapshot_time >= snapshot_interval_sec:
                             elapsed = now - start_wall_time
                             child_pid = getattr(self.stt, "child_pid", None)
@@ -1154,6 +1229,7 @@ class SpeechPipeline:
                                 "segments_so_far": len(segment_results)
                             }
                             periodic_snapshots.append(snapshot)
+                            logger.log_event("capture_snapshot", snapshot)
                             print(f"[MIC Monitor] {elapsed:5.1f}s / {duration_seconds}s | "
                                   f"ParentRSS: {mem.get('parent_rss_mb', mem['current_rss_mb']):5.1f}MB | "
                                   f"ChildRSS: {mem.get('child_rss_mb', 0.0):5.1f}MB | "
@@ -1284,5 +1360,3 @@ class SpeechPipeline:
         finally:
             if not self.has_running_workers():
                 logger.close()
-
-

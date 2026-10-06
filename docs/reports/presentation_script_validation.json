@@ -1,0 +1,170 @@
+{
+  "date": "2026-10-05",
+  "scope": "local script coaching implementation; not board or human microphone acceptance",
+  "regression": {
+    "full_tests": 134,
+    "full_passed": true,
+    "seconds": 112.626,
+    "final_focused_tests": 18,
+    "final_focused_passed": true,
+    "seconds_final": 5.239
+  },
+  "semantic_development_scenarios": [
+    {
+      "case": "paraphrase",
+      "passed": true,
+      "actual": "explained",
+      "metrics": {
+        "wall_ms": 3959.493750007823,
+        "total_duration": 3943729667,
+        "load_duration": 9680250,
+        "prompt_eval_count": 608,
+        "prompt_eval_duration": 389703000,
+        "eval_count": 43,
+        "eval_duration": 3524578000
+      }
+    },
+    {
+      "case": "negation",
+      "passed": true,
+      "actual": "uncertain",
+      "metrics": {
+        "wall_ms": 4027.9300829861313,
+        "total_duration": 3975637875,
+        "load_duration": 16872666,
+        "prompt_eval_count": 609,
+        "prompt_eval_duration": 295331000,
+        "eval_count": 43,
+        "eval_duration": 3641453000
+      }
+    },
+    {
+      "case": "number",
+      "passed": true,
+      "actual": "uncertain",
+      "metrics": {
+        "wall_ms": 3908.354874991346,
+        "total_duration": 3881560917,
+        "load_duration": 18311709,
+        "prompt_eval_count": 604,
+        "prompt_eval_duration": 295252000,
+        "eval_count": 43,
+        "eval_duration": 3544023000
+      }
+    },
+    {
+      "case": "skip",
+      "passed": true,
+      "actual": [
+        "script-1",
+        "script-2"
+      ],
+      "metrics": {
+        "wall_ms": 4038.0317499511875,
+        "total_duration": 4007263625,
+        "load_duration": 12469500,
+        "prompt_eval_count": 616,
+        "prompt_eval_duration": 300491000,
+        "eval_count": 44,
+        "eval_duration": 3678892000
+      }
+    }
+  ],
+  "ui_manual_session": {
+    "session_id": "feccb41d700740d39ed02a34502b4ce8",
+    "confirmed_points": 3,
+    "skipped_candidates": [
+      "script-2",
+      "script-3",
+      "script-4"
+    ],
+    "voice_events": [
+      {
+        "type": "voice_configured",
+        "key": null,
+        "returncode": null
+      },
+      {
+        "type": "voice_queued",
+        "key": "voice_test:3",
+        "returncode": null
+      },
+      {
+        "type": "voice_started",
+        "key": "voice_test:3",
+        "returncode": null
+      },
+      {
+        "type": "voice_completed",
+        "key": "voice_test:3",
+        "returncode": 0
+      },
+      {
+        "type": "voice_queued",
+        "key": "script_missing:script-2",
+        "returncode": null
+      },
+      {
+        "type": "voice_started",
+        "key": "script_missing:script-2",
+        "returncode": null
+      },
+      {
+        "type": "voice_completed",
+        "key": "script_missing:script-2",
+        "returncode": 0
+      },
+      {
+        "type": "voice_queued",
+        "key": "total_remaining",
+        "returncode": null
+      },
+      {
+        "type": "voice_started",
+        "key": "total_remaining",
+        "returncode": null
+      },
+      {
+        "type": "voice_completed",
+        "key": "total_remaining",
+        "returncode": 0
+      },
+      {
+        "type": "voice_queued",
+        "key": "total_over",
+        "returncode": null
+      },
+      {
+        "type": "voice_started",
+        "key": "total_over",
+        "returncode": null
+      },
+      {
+        "type": "voice_completed",
+        "key": "total_over",
+        "returncode": 0
+      },
+      {
+        "type": "voice_queued",
+        "key": "slide_time:1",
+        "returncode": null
+      },
+      {
+        "type": "voice_started",
+        "key": "slide_time:1",
+        "returncode": null
+      },
+      {
+        "type": "voice_completed",
+        "key": "slide_time:1",
+        "returncode": 0
+      }
+    ]
+  },
+  "limitations": [
+    "no new human microphone/earphone concurrent acceptance",
+    "no QCS6490 TTS runtime",
+    "no 2-second model latency pass",
+    "no independent script accuracy study"
+  ]
+}

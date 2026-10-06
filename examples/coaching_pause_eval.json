@@ -1,0 +1,65 @@
+{
+  "schema_version": 2,
+  "purpose": "Hand-authored pause development regression cases; not independent quality validation.",
+  "cases": [
+    {
+      "id": "P01",
+      "point": "음성 인식은 로컬에서 실행합니다",
+      "expected_status": "explained",
+      "expected_missing": false,
+      "utterances": [
+        {
+          "text": "앞에서 발표 시간을 관리한다고 설명했습니다."
+        },
+        {
+          "text": "음성 인식은 외부로 보내지 않고"
+        },
+        {
+          "text": "이 기기 안에서 실행합니다."
+        }
+      ]
+    },
+    {
+      "id": "P02",
+      "point": "발화를 최대 4초 구간으로 분할합니다",
+      "expected_status": "uncertain",
+      "expected_missing": false,
+      "utterances": [
+        {
+          "text": "발화를 최대"
+        },
+        {
+          "text": "삼 초 구간으로 나눕니다."
+        }
+      ]
+    },
+    {
+      "id": "P03",
+      "point": "음성 인식은 로컬에서 실행합니다",
+      "expected_status": "uncertain",
+      "expected_missing": false,
+      "utterances": [
+        {
+          "text": "앞에서 발표 시간을 관리한다고 설명했습니다."
+        },
+        {
+          "text": "음성 인식은 외부로 보내지 않고"
+        }
+      ]
+    },
+    {
+      "id": "P04",
+      "point": "목표 시간은 60초입니다",
+      "expected_status": "uncertain",
+      "expected_missing": false,
+      "utterances": [
+        {
+          "text": "목표 시간은"
+        },
+        {
+          "text": "오십 초입니다."
+        }
+      ]
+    }
+  ]
+}

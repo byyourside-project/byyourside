@@ -1,0 +1,35 @@
+{
+  "deck_id": "byyourside-demo",
+  "version": 1,
+  "title": "By Your Side · 발표 코파일럿",
+  "total_duration_sec": 300,
+  "slides": [
+    {
+      "slide_id": "intro",
+      "title": "발표를 돕는 코파일럿",
+      "target_duration_sec": 90,
+      "keypoints": [
+        {"keypoint_id": "intro-purpose", "text": "발표자의 시간과 핵심 내용 설명을 돕습니다", "required": true, "aliases": ["발표 시간과 중요한 내용을 챙겨주는 도구입니다", "시간 관리와 핵심 내용 전달을 지원합니다"]},
+        {"keypoint_id": "intro-local", "text": "음성 인식은 로컬에서 실행합니다", "required": true, "aliases": ["음성을 외부 서버에 보내지 않고 기기에서 인식합니다", "기기 안에서 음성 인식을 처리합니다"]}
+      ]
+    },
+    {
+      "slide_id": "pipeline",
+      "title": "음성에서 코칭까지",
+      "target_duration_sec": 120,
+      "keypoints": [
+        {"keypoint_id": "pipeline-split", "text": "발화를 최대 4초 구간으로 분할합니다", "required": true, "aliases": ["최대 사 초마다 발화를 나눕니다"]},
+        {"keypoint_id": "pipeline-policy", "text": "불확실한 내용은 판단을 보류합니다", "required": true, "aliases": ["확실하지 않으면 경고하지 않고 확인을 기다립니다"]}
+      ]
+    },
+    {
+      "slide_id": "next",
+      "title": "검증과 다음 단계",
+      "target_duration_sec": 90,
+      "keypoints": [
+        {"keypoint_id": "next-evaluation", "text": "실제 발표 음성으로 정확도와 지연을 검증합니다", "required": true, "aliases": ["실제 발표를 녹음해 인식 성능과 응답 시간을 확인합니다"]},
+        {"keypoint_id": "next-board", "text": "보드 성능은 별도로 측정합니다", "required": false, "aliases": ["노트북과 보드의 성능을 각각 확인합니다"]}
+      ]
+    }
+  ]
+}
