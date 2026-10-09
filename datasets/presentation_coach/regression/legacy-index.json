@@ -1,0 +1,25 @@
+{
+  "purpose": "Development regression only; excluded from independent train/validation/test",
+  "files": [
+    {
+      "path": "examples/coaching_eval.json",
+      "sha256": "54b4f67cc86ba07bb9a0f34ffe094b5e3e3921c30f91caa4b214520380415199",
+      "cases": 20
+    },
+    {
+      "path": "examples/coaching_microphone_eval.json",
+      "sha256": "041f480f054db3520e946a29b1bdd86ca3b044c0999db95535cfb038d4926c08",
+      "cases": 32
+    },
+    {
+      "path": "examples/coaching_multikeypoint_eval.json",
+      "sha256": "a0b04715930478ed4d87eb546f254a7f4c63df532d196fda0d92a0cfa7cf5309",
+      "cases": 8
+    },
+    {
+      "path": "examples/coaching_pause_eval.json",
+      "sha256": "59cad887563dbbd070de76514a7b856951b959e662e6129d505abca9d1db39eb",
+      "cases": 4
+    }
+  ]
+}

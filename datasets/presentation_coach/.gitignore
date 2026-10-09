@@ -1,0 +1,8 @@
+# Dataset content is private by default; track schemas, code, guidelines and manifests only.
+raw/*
+staging/*
+canonical/*
+quarantine/*
+exports/ollama_sft/*
+exports/coaching_eval/*
+!**/.gitkeep

@@ -1,0 +1,488 @@
+{
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "sample_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "task": {
+      "const": "judge_keypoint_semantics"
+    },
+    "function_version": {
+      "const": "1.0"
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "human_authored",
+            "consented_session",
+            "synthetic",
+            "legacy"
+          ]
+        },
+        "source_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "repository_commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "session_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "deck_family_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "speaker_group_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "scenario_family_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "parent_sample_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "derived_from_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "consent_status": {
+          "enum": [
+            "granted",
+            "synthetic_no_personal_data",
+            "unknown",
+            "denied",
+            "revoked"
+          ]
+        },
+        "pii_status": {
+          "enum": [
+            "cleared",
+            "unknown",
+            "present"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "source_id",
+        "repository_commit",
+        "session_id",
+        "deck_family_id",
+        "speaker_group_id",
+        "scenario_family_id",
+        "parent_sample_id",
+        "derived_from_ids",
+        "consent_status",
+        "pii_status"
+      ],
+      "additionalProperties": false
+    },
+    "snapshot": {
+      "type": "object",
+      "properties": {
+        "phase": {
+          "enum": [
+            "ongoing",
+            "transition",
+            "end"
+          ]
+        },
+        "visit_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "cutoff_sec": {
+          "type": "number",
+          "minimum": 0
+        },
+        "pending": {
+          "type": "boolean"
+        },
+        "quality_issue_codes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "context_trimmed": {
+          "type": "boolean"
+        },
+        "segments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "segment_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1
+              },
+              "start_sec": {
+                "type": "number",
+                "minimum": 0
+              },
+              "end_sec": {
+                "type": "number",
+                "minimum": 0
+              },
+              "status": {
+                "enum": [
+                  "OK",
+                  "UNCERTAIN",
+                  "ERROR",
+                  "DROPPED"
+                ]
+              },
+              "endpoint_reason": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "segment_id",
+              "text",
+              "start_sec",
+              "end_sec",
+              "status",
+              "endpoint_reason"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 1,
+          "maxItems": 12
+        }
+      },
+      "required": [
+        "phase",
+        "visit_version",
+        "revision",
+        "cutoff_sec",
+        "pending",
+        "quality_issue_codes",
+        "context_trimmed",
+        "segments"
+      ],
+      "additionalProperties": false
+    },
+    "input": {
+      "type": "object",
+      "properties": {
+        "slide_title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "keypoints": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 50,
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "utterances": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "number": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "number",
+              "text"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 1,
+          "maxItems": 12
+        }
+      },
+      "required": [
+        "slide_title",
+        "keypoints",
+        "utterances"
+      ],
+      "additionalProperties": false
+    },
+    "mapping": {
+      "type": "object",
+      "properties": {
+        "keypoint_ids": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "utterance_segment_ids": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          }
+        }
+      },
+      "required": [
+        "keypoint_ids",
+        "utterance_segment_ids"
+      ],
+      "additionalProperties": false
+    },
+    "target": {
+      "type": "object",
+      "properties": {
+        "compact": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "s": {
+                "type": "integer",
+                "enum": [
+                  -1,
+                  0,
+                  1
+                ]
+              },
+              "e": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "uniqueItems": true
+              }
+            },
+            "required": [
+              "s",
+              "e"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "compact"
+      ],
+      "additionalProperties": false
+    },
+    "annotation": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "draft",
+            "reviewed",
+            "adjudicated",
+            "rejected"
+          ]
+        },
+        "annotator_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "guideline_version": {
+          "const": "1.0"
+        },
+        "point_details": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "relation": {
+                "enum": [
+                  "equivalent",
+                  "partial",
+                  "contradiction",
+                  "quantity_mismatch",
+                  "negation",
+                  "corrected_to_match",
+                  "retracted",
+                  "incomplete",
+                  "unrelated",
+                  "not_mentioned",
+                  "ambiguous",
+                  "injection_only"
+                ]
+              },
+              "rationale": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "relation",
+              "rationale"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "confidence": {
+          "enum": [
+            "high",
+            "medium",
+            "low"
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "annotator_ids",
+        "guideline_version",
+        "point_details",
+        "confidence"
+      ],
+      "additionalProperties": false
+    },
+    "lineage": {
+      "type": "object",
+      "properties": {
+        "split_group_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "duplicate_cluster_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "transform_version": {
+          "const": "1.0"
+        },
+        "prompt_version": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "split_group_id",
+        "duplicate_cluster_id",
+        "transform_version",
+        "prompt_version"
+      ],
+      "additionalProperties": false
+    },
+    "split": {
+      "enum": [
+        "unassigned",
+        "train",
+        "validation",
+        "test",
+        "legacy_regression",
+        "quarantine"
+      ]
+    },
+    "reference": {
+      "type": "object",
+      "properties": {
+        "scope": {
+          "const": "legacy_evaluator_replay"
+        },
+        "review_status": {
+          "const": "adjudicated"
+        },
+        "phase": {
+          "enum": [
+            "ongoing",
+            "transition",
+            "end"
+          ]
+        },
+        "points": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "expected_status": {
+                "enum": [
+                  "explained",
+                  "uncertain",
+                  "unconfirmed"
+                ]
+              },
+              "expected_missing": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "expected_status",
+              "expected_missing"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "scope",
+        "review_status",
+        "phase",
+        "points"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schema_version",
+    "sample_id",
+    "task",
+    "function_version",
+    "source",
+    "snapshot",
+    "input",
+    "mapping",
+    "target",
+    "annotation",
+    "lineage",
+    "split"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Presentation coach canonical request v1"
+}
