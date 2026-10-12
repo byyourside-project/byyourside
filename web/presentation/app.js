@@ -1,6 +1,7 @@
 'use strict';
 const $ = id => document.getElementById(id);
 let current = null, busy = false, lastAlerts = '', commandRevision = 0, pendingCommand = null;
+let loadedScriptSignature = null;
 let microphonesRefreshing = false, microphoneDevicesError = '', selectedMicrophone = '', microphoneSelectionChanged = false;
 let missingMicrophoneId = null, knownMicrophoneIds = null;
 let microphoneSelectionInitialized = false, microphoneSelectionTouched = false;
@@ -181,6 +182,8 @@ async function refreshMicrophones() {
   finally { microphonesRefreshing = false; renderMicrophoneState(); }
 }
 function render(data) {
+  $('review-link').hidden = !data.review_url;
+  if (data.review_url) $('review-link').href = data.review_url;
   current = data;
   const s = data.session, deck = s ? s.deck : data.deck, index = s ? s.index : 0;
   if (!microphoneSelectionInitialized) {
@@ -204,7 +207,12 @@ function render(data) {
   const slide = deck.slides[index], running = s && s.status === 'running';
   $('deck-title').textContent = deck.title;
   const script = s?.script_progress, plan = deck.script_plan;
-  if (plan && !$('script-text').value) {$('script-text').value = deck.script_text; $('script-duration').value = deck.total_duration_sec;}
+  const scriptSignature = JSON.stringify([deck.script_text, deck.total_duration_sec]);
+  if (plan && loadedScriptSignature !== scriptSignature) {
+    $('script-text').value = deck.script_text;
+    $('script-duration').value = deck.total_duration_sec;
+  }
+  loadedScriptSignature = scriptSignature;
   $('script-progress-card').hidden = !script;
   if (script) renderScriptPace(script, deck);
   $('script-plan').textContent = plan ? `대본 ${plan.units.length}구간 · 목표 ${seconds(deck.total_duration_sec)} · 기준 분당 ${Math.round(plan.baseline_units_per_min)}글자 (공백·문장부호 제외)` : '대본과 목표 시간을 넣으면 구간별 예정 시간과 기준 속도를 계산합니다.';

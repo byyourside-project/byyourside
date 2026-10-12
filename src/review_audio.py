@@ -15,18 +15,20 @@ def model_paths(root):
     return folder / 'model.int8.onnx', folder / 'tokens.txt', root / 'silero_vad.onnx'
 
 
-def analyze_file(source, wav_path, models_dir):
+def analyze_file(source, wav_path, models_dir, max_duration=1200):
     import imageio_ffmpeg
     from src.config import SttConfig, VadConfig
     from src.stt import SttEngine
     from src.vad import VadProcessor
 
+    if isinstance(max_duration, bool) or not isinstance(max_duration, (int, float)) or not 0 < max_duration <= 1200:
+        raise ValueError('음성 길이 제한이 올바르지 않습니다.')
     model, tokens, vad_path = model_paths(models_dir)
     for file in (model, tokens, vad_path):
         if not file.is_file():
             raise ValueError('음성 모델이 준비되지 않았습니다. 모델 준비 안내를 확인해 주세요.')
     command = [imageio_ffmpeg.get_ffmpeg_exe(), '-hide_banner', '-loglevel', 'error',
-               '-nostdin', '-y', *INPUT_RESTRICTIONS, '-i', str(source), '-map', '0:a:0', '-t', '1201',
+               '-nostdin', '-y', *INPUT_RESTRICTIONS, '-i', str(source), '-map', '0:a:0', '-t', str(max_duration + 1),
                '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', str(wav_path)]
     try:
         subprocess.run(command, check=True, capture_output=True, timeout=60)
@@ -35,8 +37,8 @@ def analyze_file(source, wav_path, models_dir):
     with wave.open(str(wav_path), 'rb') as reader:
         x = np.frombuffer(reader.readframes(reader.getnframes()), dtype='<i2').astype(np.float32) / 32768
     duration = len(x) / 16000
-    if not 0 < duration <= 1200:
-        raise ValueError('20분 이하의 녹음을 선택해 주세요.')
+    if not 0 < duration <= max_duration:
+        raise ValueError(f'{max_duration:g}초 이하의 녹음을 선택해 주세요.')
     peak = float(np.max(np.abs(x)))
     peak_dbfs = 20 * math.log10(max(peak, 1e-12))
     # Uniform gain for inference only. Playback retains the decoded original level.

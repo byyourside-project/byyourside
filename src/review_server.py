@@ -34,8 +34,10 @@ def clean_title(value):
 
 
 class ReviewApp:
-    def __init__(self, root, models_dir=None):
+    def __init__(self, root, models_dir=None, presentation=None, presentation_url=None):
         self.root = Path(root).resolve()
+        self.presentation = presentation
+        self.presentation_url = presentation_url
         self.storage = self.root / 'recordings' / 'reviews'
         self.storage.mkdir(parents=True, exist_ok=True)
         self.models_dir = Path(models_dir or self.root / 'models').resolve()
@@ -52,6 +54,7 @@ class ReviewApp:
 
     def status(self):
         return {'app_id': 'byyourside_review', 'app_version': 2,
+                'presentation_url': self.presentation_url,
                 'models_ready': all(p.is_file() for p in model_paths(self.models_dir)),
                 'gaze_model_ready': ((self.models_dir / 'face_landmarker.task').is_file()
                                      and importlib.util.find_spec('mediapipe') is not None),
@@ -319,6 +322,15 @@ def make_handler(app):
                 if route == '/api/script':
                     return self.send_json(extract_script(self.read_body(MAX_SCRIPT_BYTES),
                                                          self.headers.get('X-Script-Extension', '')))
+                if route == '/api/presentation/prepare':
+                    if app.presentation is None:
+                        raise ValueError('통합 실행 파일 start_by_your_side.cmd로 열어 주세요.')
+                    data = self.json_body()
+                    app.presentation.command('script', {
+                        'text': data.get('script'), 'duration_sec': data.get('target_seconds'),
+                        'title': data.get('title') or '발표 연습 대본',
+                    })
+                    return self.send_json({'url': app.presentation_url, 'prepared': True})
                 if route == '/api/upload':
                     suffix = self.headers.get('X-Audio-Extension', '').lower()
                     if suffix not in EXTENSIONS:

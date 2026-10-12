@@ -28,7 +28,7 @@ function status(message, error = false) {
 
 function setBusy(value) {
   busy = value;
-  ['analyze', 'demo', 'save', 'recompare', 'audio-file', 'script-file', 'script', 'target', 'review-title']
+  ['analyze', 'demo', 'save', 'recompare', 'audio-file', 'script-file', 'script', 'target', 'review-title', 'prepare-live']
     .forEach(id => $(id).disabled = value);
   document.querySelector('.results').setAttribute('aria-busy', String(value));
 }
@@ -596,7 +596,30 @@ $('review-title').addEventListener('change', async () => {
 });
 
 loadHistory();
+$('prepare-live').addEventListener('click', async () => {
+  if (busy) return;
+  if (!confirm('현재 입력한 대본과 목표 시간으로 발표 중 준비 자료를 바꿀까요?')) return;
+  try {
+    setBusy(true);
+    const seconds = target();
+    if (seconds === null) throw new Error('발표 중 속도 비교를 위해 목표 시간을 입력해 주세요.');
+    const data = await post('/api/presentation/prepare', {
+      script: $('script').value, target_seconds: seconds,
+      title: report?.title || '발표 연습 대본',
+    });
+    $('presentation-link').href = data.url;
+    status('대본을 전달했어요. 위의 발표 중 화면 열기를 누르고 입력 방식을 확인한 뒤 시작하세요.');
+  } catch (error) {
+    status(error.message, true);
+  } finally { setBusy(false); }
+});
 request('/api/status').then(data => {
+  if (data.presentation_url) {
+    $('presentation-link').href = data.presentation_url;
+    $('presentation-link').hidden = false;
+    $('prepare-live').hidden = false;
+    $('live-help').hidden = false;
+  }
   $('demo').hidden = !data.demo_available;
   if (!data.models_ready) {
     status('새 파일을 분석할 준비가 필요해요. 실행 안내에 따라 분석 도구를 준비해 주세요.' +

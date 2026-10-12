@@ -1,0 +1,31 @@
+{
+  "record_count": 80,
+  "function_counts": {
+    "F01": 24,
+    "F02": 32,
+    "F03": 12,
+    "F04": 12
+  },
+  "split_counts": {
+    "train": 48,
+    "validation": 14,
+    "test": 18
+  },
+  "group_count": 23,
+  "duplicate_input_count": 0,
+  "cross_split_group_count": 0,
+  "invalid_evidence_count": 0,
+  "existing_eval_files_checked": [
+    "coaching_eval.json",
+    "coaching_microphone_eval.json",
+    "coaching_multikeypoint_eval.json",
+    "coaching_pause_eval.json"
+  ],
+  "existing_keypoints_checked": 88,
+  "exact_existing_keypoint_overlap": 0,
+  "human_reviewed_count": 0,
+  "training_eligible_count": 0,
+  "model_training_performed": false,
+  "quantization_performed": false,
+  "note": "구조 검사 결과. 사람의 의미 정답 검수와 모델 성능 평가는 아직 수행하지 않음."
+}

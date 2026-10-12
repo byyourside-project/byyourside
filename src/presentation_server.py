@@ -5,11 +5,13 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 
 from src.presentation import Session, PhraseCoach, validate_deck
 from src.script_coaching import prepare_script, ScriptSession
 from src.voice_feedback import VoiceFeedback
+from src.presentation_after import AfterStore, markdown_report
+from src.question_audio import QuestionAudio
 
 _UNCHANGED = object()
 
@@ -21,6 +23,8 @@ class PresentationApp:
             self.deck = prepare_script(self.deck["script_text"], self.deck["total_duration_sec"], self.deck["title"])
         self.coach = coach or PhraseCoach()
         self.output_dir = output_dir
+        self.after = AfterStore(output_dir)
+        self.question_audio = QuestionAudio(Path(__file__).resolve().parents[1])
         self.pipeline_factory = pipeline_factory
         self.lock = threading.RLock()
         self.session = None
@@ -48,6 +52,7 @@ class PresentationApp:
         self.last_saved = 0.0
         self.quality_flags = set()
         self.voice_enabled = False
+        self.review_url = None
         self.voice_scope = "pace"
         self.voice_generation = 0
         self.voice_last_event = None
@@ -60,6 +65,7 @@ class PresentationApp:
     def state(self):
         with self.lock:
             return {"deck": self.deck, "session": self.session.snapshot() if self.session else None,
+                    "review_url": self.review_url,
                     "start_preparing": self.start_preparing, "coach_status": dict(self.coach_status),
                     "audio_status": self.audio_status, "coach": self.coach.name, "output_path": self.output_path,
                     "audio_input_mode": self.audio_input_mode, "audio_error": self.audio_error,
@@ -519,6 +525,24 @@ def make_server(app, port=8765):
                 self.send_json(403, {"error": "로컬 화면에서 요청해 주세요."})
                 return
             route = urlparse(self.path).path
+            if route.startswith('/api/after/'):
+                try:
+                    if route == '/api/after/sessions':
+                        self.send_json(200, app.after.listing())
+                    elif route in ('/api/after/report', '/api/after/export'):
+                        params = parse_qs(urlparse(self.path).query)
+                        report = app.after.detail(params.get('session_id', [''])[0])
+                        if route.endswith('/export'):
+                            self.send_json(200, {'report': report, 'markdown': markdown_report(report)})
+                        else:
+                            self.send_json(200, report)
+                    else:
+                        self.send_json(404, {'error': '없는 경로입니다.'})
+                except FileNotFoundError:
+                    self.send_json(404, {'error': '발표 기록을 찾을 수 없습니다. 발표 종료 후 새로고침해 주세요.'})
+                except (OSError, ValueError, KeyError, TypeError, AttributeError):
+                    self.send_json(400, {'error': '저장된 발표 기록을 읽을 수 없습니다.'})
+                return
             if route == "/api/state":
                 self.send_json(200, app.state())
             elif route == "/api/microphones":
@@ -532,9 +556,10 @@ def make_server(app, port=8765):
                         self.send_json(200, {**app.session.snapshot(), "segments": app.session.segments,
                                              "events": app.session.events, "alerts": app.session.alerts,
                                              "active_alerts": app.session.snapshot()["alerts"], "schema_version": 2 if "script_plan" in app.session.deck else 1})
-            elif route in ("/", "/app.js", "/style.css"):
-                name = "index.html" if route == "/" else route[1:]
-                payload = (root / name).read_bytes()
+            elif route in ('/', '/app.js', '/style.css', '/after', '/after/', '/after/app.js', '/after/style.css'):
+                after = route.startswith('/after')
+                name = 'index.html' if route in ('/', '/after', '/after/') else route.rsplit('/', 1)[-1]
+                payload = ((root.parent / 'after' if after else root) / name).read_bytes()
                 self.send_response(200)
                 self.send_header("Content-Type", {"index.html": "text/html; charset=utf-8", "app.js": "text/javascript; charset=utf-8", "style.css": "text/css; charset=utf-8"}[name])
                 self.send_header("Content-Length", str(len(payload)))
@@ -555,12 +580,30 @@ def make_server(app, port=8765):
                 return
             try:
                 length = int(self.headers.get("Content-Length", "0"))
+                route = urlparse(self.path).path
+                if route == '/api/after/transcribe':
+                    if not 0 < length <= 12 * 1024 * 1024:
+                        raise ValueError('질문 녹음은 12MB 이하로 제한됩니다.')
+                    with app.lock:
+                        if app.session and app.session.status in ('running', 'stopping'):
+                            raise ValueError('발표 종료 처리가 끝난 뒤 질문을 녹음해 주세요.')
+                    payload = self.rfile.read(length)
+                    self.send_json(200, app.question_audio.transcribe(payload))
+                    return
                 if not 0 < length <= 1048576:
                     raise ValueError("요청 크기가 올바르지 않습니다.")
                 body = json.loads(self.rfile.read(length))
                 if not isinstance(body, dict):
                     raise ValueError("JSON 객체가 필요합니다.")
-                self.send_json(200, app.command(urlparse(self.path).path.removeprefix("/api/"), body))
+                if route == '/api/after/ask':
+                    result = app.after.ask(body.get('session_id'), body.get('question'))
+                elif route == '/api/after/supplement':
+                    result = app.after.supplement(body.get('session_id'), body.get('text'))
+                else:
+                    result = app.command(route.removeprefix('/api/'), body)
+                self.send_json(200, result)
+            except FileNotFoundError:
+                self.send_json(404, {'error': '발표 기록을 찾을 수 없습니다.'})
             except (ValueError, KeyError, TypeError) as exc:
                 self.send_json(400, {"error": str(exc)})
             except Exception as exc:

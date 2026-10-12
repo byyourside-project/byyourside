@@ -1,0 +1,22 @@
+{
+  "schema_version": "0.1",
+  "example_only": true,
+  "sample_id": "example-001",
+  "speaker_id": "example-speaker",
+  "presentation_id": "example-presentation",
+  "topic_id": "example-topic",
+  "target_seconds": 30,
+  "duration_seconds": 5,
+  "speech_segments": [
+    {"segment_id": "s1", "start": 0.5, "end": 3.0, "transcript": "안녕하세요. 발표 연습을 시작하겠습니다.", "script_unit_ids": ["u1"]}
+  ],
+  "camera_segments": [
+    {"start": 0.0, "end": 3.5, "label": "front", "reason": "형식 설명을 위한 가상 구간"},
+    {"start": 3.5, "end": 5.0, "label": "unknown", "reason": "형식 설명을 위한 가상 구간"}
+  ],
+  "review_status": "unreviewed",
+  "reviewer_id": null,
+  "consent_scope": [],
+  "split": "unassigned",
+  "training_eligible": false
+}

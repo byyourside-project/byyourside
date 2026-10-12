@@ -1,0 +1,1 @@
+sample_id,speaker_id,presentation_id,topic_id,media_file,script_file,annotation_file,target_seconds,duration_seconds,recording_condition,consent_scope,review_status,reviewer_id,split,training_eligible

@@ -9,6 +9,7 @@
 <body>
   <header class="topbar">
     <a class="brand" href="/">곁<span>by your side</span></a>
+    <a id="presentation-link" class="text-link" hidden target="_blank" rel="noopener">발표 중 화면 열기</a>
     <span class="privacy"><i aria-hidden="true"></i>내 기기에서 분석</span>
   </header>
   <main>
@@ -45,6 +46,8 @@
           </details>
           <button id="analyze" class="button primary" type="button">발표 분석하기 <span aria-hidden="true">→</span></button>
           <button id="demo" class="button secondary" type="button" hidden>보내준 첫 녹음으로 살펴보기</button>
+          <button id="prepare-live" class="button secondary" type="button" hidden>이 대본으로 발표 준비</button>
+          <p id="live-help" class="field-help" hidden>대본과 목표 시간을 발표 중 화면으로 전달합니다. 발표는 자동으로 시작하지 않아요.</p>
           <p id="status" class="status" role="status" aria-live="polite">대본과 연습 영상을 준비해 주세요.</p>
         </aside>
         <section class="history card" aria-labelledby="history-title">

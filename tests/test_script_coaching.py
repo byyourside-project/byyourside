@@ -355,7 +355,7 @@ class ScriptTests(unittest.TestCase):
         self.assertFalse(self.session.progress()['reliable'])
 
     def test_http_application_preparation_export_and_voice_toggle(self):
-        with tempfile.TemporaryDirectory() as directory:
+        with tempfile.TemporaryDirectory() as directory, patch('src.presentation_server.VoiceFeedback'):
             app=PresentationApp(self.deck,output_dir=directory)
             try:
                 state=app.command('script',{'text':TEXT,'duration_sec':120})

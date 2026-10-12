@@ -1,7 +1,10 @@
 import os
 import re
 import unicodedata
-import resource
+try:
+    import resource
+except ImportError:  # Windows exposes peak working set through psutil instead.
+    resource = None
 from typing import List, Dict, Any, Tuple, Optional
 import numpy as np
 import psutil
@@ -155,6 +158,9 @@ def get_current_rss_mb() -> float:
 
 def get_peak_rss_mb() -> float:
     """Get peak RSS memory in MB since process start via getrusage."""
+    if resource is None:
+        memory = psutil.Process(os.getpid()).memory_info()
+        return getattr(memory, 'peak_wset', memory.rss) / (1024.0 * 1024.0)
     usage = resource.getrusage(resource.RUSAGE_SELF)
     import sys
     if sys.platform == "darwin":
