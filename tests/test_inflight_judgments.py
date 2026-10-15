@@ -289,13 +289,16 @@ class ScriptInflightJudgmentTests(_JudgmentFixtures, unittest.TestCase):
     def test_completed_request_with_no_changed_judgments_restores_earlier_missing_section(self):
         texts=[f'발표 구간 {i}의 연구 결과를 설명합니다.' for i in range(1,8)]
         self.session=ScriptSession(prepare_script('\n'.join(texts),120),clock=self.clock)
-        covered=self.feed(' '.join(texts[1:]),1,39,'covered')
-        response=self.response(covered,{f'script-{i}':('explained',['covered']) for i in range(2,8)})
+        covered=self.feed(' '.join(texts[1:4]),1,30,'covered')
+        response=self.response(covered,{f'script-{i}':('explained',['covered']) for i in range(2,5)})
+        response['position']={'keypoint_id':'script-4','phase':'complete','evidence_segment_ids':['covered']}
         self.session.apply(covered,response)
-        # Initial routing intentionally examines a bounded forward range. The
-        # final sentence supplies the last anchor through its own normal job.
-        final=self.feed(texts[-1],39.2,40,'final')
-        self.session.apply(final,self.response(final,{'script-7':('explained',['final'])}))
+        # The second request follows the new four-sentence window. Location
+        # and factual completion have independent, explicit evidence.
+        final=self.feed(' '.join(texts[4:]),31,40,'final')
+        response=self.response(final,{f'script-{i}':('explained',['final']) for i in range(5,8)})
+        response['position']={'keypoint_id':'script-7','phase':'complete','evidence_segment_ids':['final']}
+        self.session.apply(final,response)
         self.assertEqual(self.session.missing_ids,['script-1'])
         closing=self.feed('그럼 발표를 끝냅니다.',41,45,'closing')
         self.assertEqual(self.session.missing_ids,[])

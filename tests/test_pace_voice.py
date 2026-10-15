@@ -158,9 +158,9 @@ class PaceVoicePolicyTests(unittest.TestCase):
         self.assertTrue(self.app.voice_enabled)
         self.assertEqual(self.app.voice_scope, 'all')
 
-    def test_real_script_progress_queues_pace_and_new_pending_speech_cancels_it(self):
+    def test_slide_summary_queues_once_and_survives_new_pending_speech(self):
         text = ('첫 문장은 목적을 설명합니다.\n두 번째 문장은 비용을 설명합니다.\n'
-                '세 번째 문장은 일정을 설명합니다.\n마지막 문장은 결과를 설명합니다.')
+                '<<슬라이드 넘김>>\n세 번째 문장은 일정을 설명합니다.\n마지막 문장은 결과를 설명합니다.')
         self.app.command('deck', prepare_script(text, 120))
         self.start()
         with self.app.lock:
@@ -170,12 +170,18 @@ class PaceVoicePolicyTests(unittest.TestCase):
         wait_for(lambda: self.app.state()['session']['states']['script-1']['status'] == 'explained')
         with self.app.lock:
             self.clock.advance(6)
+        self.assertFalse(self.app.voice.sent)
+        self.app.command('navigate', {'index': 1})
         wait_for(lambda: bool(self.app.voice.sent))
         session, old = self.app.voice.sent[-1]
-        self.assertIn('빠릅니다', old['message'])
+        self.assertIn('일찍 마쳤습니다', old['message'])
+        self.assertTrue(old['key'].startswith('slide_pace:'))
         self.assertTrue(self.app._voice_valid(session, old))
-        self.app.command('utterance', {'text': '두 번째 문장은', 'start_sec': 25, 'end_sec': 26,
+        self.clock.advance(2)
+        self.app.command('utterance', {'text': '세 번째 문장은', 'start_sec': 26, 'end_sec': 27,
                                       'endpoint_reason': 'hard_max_duration'})
         self.assertTrue(session.pending)
+        self.assertTrue(self.app._voice_valid(session, old))
+        self.assertEqual(len(self.app.voice.sent), 1)
+        self.app.command('voice', {'enabled': False})
         self.assertFalse(self.app._voice_valid(session, old))
-        self.assertEqual(self.app.state()['session']['script_progress']['pace'], 'waiting')

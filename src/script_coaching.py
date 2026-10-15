@@ -1,48 +1,69 @@
 """Ordered script preparation and plan-relative progress; timing is never an LLM estimate."""
-import copy
 import re
-from difflib import SequenceMatcher
 from src.presentation import Session, normalized, positive_number, validate_deck
+from src.script_tracking import ScriptTracking
 
 
-def prepare_script(text, duration, title="대본 발표"):
+def prepare_script(text, duration, title="대본 발표", slide_durations=None):
     if not isinstance(text, str) or not text.strip() or len(text) > 20000:
         raise ValueError("대본은 1~20,000자로 입력해 주세요.")
     duration = positive_number(duration, "목표 시간")
-    # A line or sentence is one review unit; keep the user's full original text.
-    units = [s.strip() for s in re.split(r"\n+|(?<=[.!?。！？])\s+", text) if normalized(s)]
+    sections = re.split(r"<<\s*슬라이드\s*넘김\s*>>", text)
+    grouped = [[s.strip() for s in re.split(r"\n+|(?<=[.!?。！？])\s+", section) if normalized(s)] for section in sections]
+    if any(not group for group in grouped):
+        raise ValueError("슬라이드 넘김 표시 앞뒤에는 발표할 문장을 넣어 주세요.")
+    units = [s for group in grouped for s in group]
     if not units or len(units) > 50 or any(len(s) > 1000 for s in units):
         raise ValueError("대본은 최대 50개 문장/줄, 각 구간 1,000자 이하로 나눠 주세요.")
     weights = [len(normalized(s)) for s in units]
     total = sum(weights)
+    slide_weights = [sum(len(normalized(s)) for s in group) for group in grouped]
+    if slide_durations is None:
+        targets = [duration * weight / total for weight in slide_weights]
+    else:
+        if not isinstance(slide_durations, list) or len(slide_durations) != len(grouped):
+            raise ValueError("슬라이드별 목표 시간을 슬라이드 수에 맞게 입력해 주세요.")
+        targets = [positive_number(value, "슬라이드 목표 시간") for value in slide_durations]
+        if abs(sum(targets) - duration) > .01:
+            raise ValueError("슬라이드별 목표 시간의 합은 전체 목표 시간과 같아야 합니다.")
     points = [{"keypoint_id": f"script-{i+1}", "text": s, "required": True} for i,s in enumerate(units)]
     deck = validate_deck({"deck_id": "user-script", "version": 2, "title": title,
                          "total_duration_sec": duration, "script_text": text,
                          "slides": [{"slide_id": "script", "title": title, "target_duration_sec": duration, "keypoints": points}]})
+    # A continuous evidence stream spans logical slides, including utterances
+    # across a marker. Physical/manual-deck visits keep their existing behavior.
+    deck["script_slide_durations_sec"] = targets if slide_durations is not None else None
     end = 0
     plan = []
-    for point, weight in zip(points, weights):
+    logical_slides = []
+    slide_indices = [i for i, group in enumerate(grouped) for _ in group]
+    for point, weight, slide_index in zip(points, weights, slide_indices):
         start = end
-        end += duration * weight / total
-        plan.append({"keypoint_id": point["keypoint_id"], "text": point["text"], "units": weight,
+        end += targets[slide_index] * weight / slide_weights[slide_index]
+        plan.append({"keypoint_id": point["keypoint_id"], "text": point["text"], "units": weight, "slide_index": slide_index,
                      "planned_start_sec": start, "planned_end_sec": end,
                      "planned_duration_sec": end - start})
-    deck["script_plan"] = {"version": 1, "unit": "공백·문장부호 제외 글자", "total_units": total,
-                           "baseline_units_per_min": total / duration * 60, "units": plan}
+    for i, target in enumerate(targets):
+        rows = [p for p in plan if p["slide_index"] == i]
+        logical_slides.append({"slide_id": f"script-slide-{i+1}", "title": f"슬라이드 {i+1}",
+                               "target_duration_sec": target, "keypoint_ids": [p["keypoint_id"] for p in rows],
+                               "planned_start_sec": rows[0]["planned_start_sec"], "planned_end_sec": rows[-1]["planned_end_sec"]})
+    deck["script_plan"] = {"version": 2, "unit": "공백·문장부호 제외 글자", "total_units": total,
+                           "baseline_units_per_min": total / duration * 60, "units": plan, "slides": logical_slides}
     return deck
 
 
-class ScriptSession(Session):
+class ScriptSession(ScriptTracking, Session):
     def __init__(self, deck, **kwargs):
-        super().__init__(prepare_script(deck["script_text"], deck["total_duration_sec"], deck["title"]), **kwargs)
+        super().__init__(prepare_script(deck["script_text"], deck["total_duration_sec"], deck["title"], deck.get("script_slide_durations_sec")), **kwargs)
         self.plan = self.deck["script_plan"]
+        self._init_tracking()
         # Each unit contributes once, at the end of the speech that first
         # established it. Model latency and re-reading never move this clock.
         self.confirmed_audio_ends = {}
         self.confirmed_judgment_delays = {}
-        # Display measurements are separate from conservative voice estimates.
-        # They retain the first real judgment timestamp and an auditable choice
-        # of speech endpoint without changing the semantic evidence itself.
+        # Retain legacy sentence timing diagnostics in exports. Slide clocks
+        # and voice summaries are maintained independently by ScriptTracking.
         self.sentence_timings = {}
         self.last_confirmed_audio_end = None
         self.latest_audio_end = None
@@ -50,8 +71,6 @@ class ScriptSession(Session):
         self.pace_candidate = None
         self.pace_since = 0
         self.pace = "waiting"
-        self.pace_last_notice = {}
-        self.pace_notice_count = 0
         self.missing_ids = []
         self.missing_notice_counts = {}
 
@@ -74,25 +93,16 @@ class ScriptSession(Session):
 
     def _pending_job(self, version):
         job = super()._pending_job(version)
-        # Limit inference context while still routing a jump by lexical similarity.
-        job["slide"] = copy.deepcopy(job["slide"])
-        points = job["slide"]["keypoints"]
-        confirmed = [i for i,p in enumerate(points) if self.states[p["keypoint_id"]]["status"] == "explained"]
-        cursor = max(confirmed, default=-1)
-        text = normalized(" ".join(s["text"] for s in job["segments"][-3:]))
-        ranked = sorted(range(len(points)), key=lambda i: SequenceMatcher(None, normalized(points[i]["text"]), text).ratio(), reverse=True)[:2]
-        indices = set(range(max(0,cursor-1), min(len(points),cursor+7))) | set(ranked)
-        job["slide"]["keypoints"] = [p for i,p in enumerate(points) if i in indices]
-        job["script_tracking"] = True
-        job["confirmed_keypoint_ids"] = [p["keypoint_id"] for p in points if self.states[p["keypoint_id"]]["status"] == "explained"]
-        return job
+        return self._tracking_job(job)
 
     def apply(self, job, response):
         relevant = self.job_is_relevant(job)
+        position = self._validate_position(job, response) if relevant else None
         applied = super().apply(job, response)
         if not relevant:
             return []
         valid = {s["segment_id"]: s for s in job["segments"]}
+        self._apply_position(job, position, applied)
         for kid in list(self.confirmed_audio_ends):
             if self.states[kid]["status"] != "explained":
                 del self.confirmed_audio_ends[kid]
@@ -381,16 +391,8 @@ class ScriptSession(Session):
         if self.pace == "waiting":
             return
         self._retract_pace_alerts("pace_direction_changed", keep_direction=self.pace)
-        if self.pace in ("fast", "slow"):
-            now = self.elapsed()
-            if now - self.pace_last_notice.get(self.pace, -100) < 30:
-                return
-            message = "계획보다 빠릅니다. 조금 천천히 말씀해 주세요." if self.pace == "fast" else "계획보다 느립니다. 조금 더 빠르게 이어가 주세요."
-            key = f"pace:{self.pace}:{self.pace_notice_count + 1}"
-            self.alert(key, message, 1)
-            if key in self.alert_keys:
-                self.pace_last_notice[self.pace] = now
-                self.pace_notice_count += 1
+        # Sentence estimates are diagnostic only. Voice is emitted once at a
+        # logical slide boundary by ScriptTracking, never on every sentence.
 
     def stop(self):
         super().stop()
@@ -405,4 +407,5 @@ class ScriptSession(Session):
                 self.alert("script_final_review", "발표를 마쳤습니다. 확인되지 않은 대본 구간이 " + str(len(remaining)) + "개 있습니다.", 2)
 
     def snapshot(self):
-        return {**super().snapshot(), "script_progress": self.progress()}
+        return {**super().snapshot(), "script_progress": {**self.progress(),
+                "tracking": self.tracking_snapshot(), "slide_timing": self.slide_timing_snapshot()}}

@@ -18,7 +18,7 @@ class PresentationApp:
     def __init__(self, deck, coach=None, output_dir="logs/presentation_sessions", pipeline_factory=None):
         self.deck = validate_deck(deck)
         if "script_text" in self.deck:
-            self.deck = prepare_script(self.deck["script_text"], self.deck["total_duration_sec"], self.deck["title"])
+            self.deck = prepare_script(self.deck["script_text"], self.deck["total_duration_sec"], self.deck["title"], self.deck.get("script_slide_durations_sec"))
         self.coach = coach or PhraseCoach()
         self.output_dir = output_dir
         self.pipeline_factory = pipeline_factory
@@ -92,7 +92,7 @@ class PresentationApp:
         with self.lock:
             if session.status != "running" or alert.get("voice_generation", self.voice_generation) != self.voice_generation:
                 return False
-            if self.voice_scope == "pace" and not alert["key"].startswith(("pace:", "voice_test:")):
+            if self.voice_scope == "pace" and not alert["key"].startswith(("pace:", "slide_pace:", "voice_test:")):
                 return False
             active = next((a for a in session.alerts if a["key"] == alert["key"]), None)
             if alert["key"].startswith("pace:"):
@@ -267,6 +267,9 @@ class PresentationApp:
                     stale = not session.job_is_current(job)
                     if stale:
                         session.discard_job(job)
+                    elif isinstance(session, ScriptSession):
+                        # The cursor may have advanced while this request waited.
+                        job = session._tracking_job(job)
                 if not stale:
                     began = time.perf_counter()
                     response = self.coach.evaluate(job)
@@ -430,9 +433,9 @@ class PresentationApp:
             elif action in ("deck", "script"):
                 if self.session and self.session.status != "ended":
                     raise ValueError("발표 종료 후 자료를 변경해 주세요.")
-                next_deck = prepare_script(body.get("text"), body.get("duration_sec"), body.get("title", "대본 발표")) if action == "script" else validate_deck(body)
+                next_deck = prepare_script(body.get("text"), body.get("duration_sec"), body.get("title", "대본 발표"), body.get("slide_durations_sec")) if action == "script" else validate_deck(body)
                 if action == "deck" and "script_text" in next_deck:
-                    next_deck = prepare_script(next_deck["script_text"], next_deck["total_duration_sec"], next_deck["title"])
+                    next_deck = prepare_script(next_deck["script_text"], next_deck["total_duration_sec"], next_deck["title"], next_deck.get("script_slide_durations_sec"))
                 self.deck = next_deck
                 # The ended session already has its own saved deck snapshot.
                 # Clearing the active reference lets preparation show the new
@@ -452,11 +455,15 @@ class PresentationApp:
                 if not self.voice_enabled:
                     raise ValueError("음성 안내를 켠 뒤 시험해 주세요.")
                 self.session.alert("voice_test:" + str(len(self.session.events)), "음성 안내 시험입니다. 이어폰에서 들리는지 확인해 주세요.", 3)
-            elif action in ("navigate", "stop", "utterance"):
+            elif action in ("navigate", "resync", "stop", "utterance"):
                 if not self.session or self.session.status != "running":
                     raise ValueError("발표를 먼저 시작해 주세요.")
                 if action == "navigate":
                     self.session.navigate(body.get("index"))
+                elif action == "resync":
+                    if not isinstance(self.session, ScriptSession):
+                        raise ValueError("대본 발표에서만 문장을 선택할 수 있습니다.")
+                    self.session.resync(body.get("index"))
                 elif action == "stop":
                     self.session.stop()
                     for alert in self.session.alerts:

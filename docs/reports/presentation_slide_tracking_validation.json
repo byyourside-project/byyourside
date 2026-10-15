@@ -1,0 +1,107 @@
+{
+  "date": "2026-10-15",
+  "branch": "codex/script-slide-tracking",
+  "python_tests": {
+    "count": 331,
+    "passed": true,
+    "seconds": 136.112
+  },
+  "focused_final": {
+    "count": 89,
+    "passed": true
+  },
+  "ui_dom_tests": {
+    "count": 87,
+    "passed": true
+  },
+  "local_model": {
+    "name": "qwen3:8b",
+    "prompt_version": "semantic_v17_ordered_position_and_facts",
+    "cases": [
+      {
+        "case": "first",
+        "passed": true,
+        "wall_ms": 3676.1007079621777
+      },
+      {
+        "case": "skip",
+        "passed": true,
+        "wall_ms": 3015.557082952
+      },
+      {
+        "case": "number_error",
+        "passed": true,
+        "wall_ms": 3072.143540950492
+      },
+      {
+        "case": "partial",
+        "passed": true,
+        "wall_ms": 2971.1897909874097
+      },
+      {
+        "case": "unrelated",
+        "passed": true,
+        "wall_ms": 2903.3037499757484
+      },
+      {
+        "case": "slide_transition",
+        "passed": true,
+        "wall_ms": 3095.96229204908
+      }
+    ]
+  },
+  "stt_voice": {
+    "passed": true,
+    "stt_transcript": "조 금만 생각 을 하 면서 살 면 훨씬 편할 거야.",
+    "stt_segments": 1,
+    "cases": [
+      {
+        "direction": "fast",
+        "passed": true,
+        "boundary_sec": 20,
+        "synthesized": {
+          "frames": 85228,
+          "sample_rate": 22050,
+          "duration_sec": 3.865215419501134,
+          "peak": 0.711700439453125
+        }
+      },
+      {
+        "direction": "slow",
+        "passed": true,
+        "boundary_sec": 50,
+        "synthesized": {
+          "frames": 84716,
+          "sample_rate": 22050,
+          "duration_sec": 3.841995464852608,
+          "peak": 0.691436767578125
+        }
+      },
+      {
+        "direction": "on_plan",
+        "passed": true,
+        "boundary_sec": 30,
+        "synthesized": null
+      }
+    ],
+    "speaker_playback": false,
+    "human_hearing_verified": false
+  },
+  "not_verified": [
+    "human presentation accuracy against labeled audio",
+    "before/after accuracy comparison on identical recordings",
+    "long-running simultaneous microphone and model load",
+    "real PPT/PDF page synchronization"
+  ],
+  "sha256": {
+    "src/script_tracking.py": "834a4d42afc71f8673302f5661033b9206a80d267eab516b191afa4bac953d20",
+    "src/script_coaching.py": "65af9ab232e9dd7045051f55e7f8c7846b267f358490fb7b5f9167b9ef0e2917",
+    "src/ollama_coach.py": "3c2790c36f11e9ad303d74517ef3ae58923a0008ed2a5765f7174a5f04a5e71c",
+    "src/presentation_server.py": "a55d84f8be53e37980bfc65d14d4dc2325ef1dff4cc15d7bd31174883abcc2ef",
+    "web/presentation/app.js": "4492f180222be3a141d6c313185f090ddf4ea2378732a76c1dd04962a4b3cce9",
+    "web/presentation/index.html": "8ea4a0583656a194787afcff8aed7424e4bacc653b2578cde288b086b7fd888b",
+    "tests/test_script_tracking.py": "980ec46ca06561538a195690cfb35ea18d65a9d682aed1e41c93ff85cabb282a",
+    "scripts/validate_script_tracking.py": "096f71a754acce6ea1d8b49e18ef5ac6dd8c352854c7a886f31ec71e0fe1623b",
+    "scripts/validate_pace_voice.py": "7764f1aaa74bff26319abbcde3a6fb337eef6c162af8abc7c34c3cbcb683a72d"
+  }
+}

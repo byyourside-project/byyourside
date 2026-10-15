@@ -33,6 +33,8 @@ class FocusedCoachTests(unittest.TestCase):
             self.requests.append(payload)
             compact = {key: (answers or {}).get(key, {"s": -1, "e": []})
                        for key in payload["format"]["required"]}
+            if 'position' in compact:
+                compact['position'] = {'id': None, 'phase': 'none', 'e': []}
             compact.update(extra or {})
             return {"done": True, "done_reason": "stop", "message": {"content": json.dumps(compact)}}
         with patch.object(self.coach, "_request", side_effect=request):

@@ -9,6 +9,9 @@
   <details id="script-setup" class="card script-setup" open><summary>대본 넣기 · 발표 전에 준비</summary>
     <label for="script-text">대본 (문장 또는 줄 순서로 추적)</label><textarea id="script-text" rows="5" maxlength="20000" placeholder="대본을 붙여 넣으세요. 한 줄에 한 문장을 쓰면 구간을 나누기 쉽습니다."></textarea>
     <div class="form-footer"><label>목표 시간(초) <input id="script-duration" type="number" min="1" value="180"></label><button id="prepare-script" class="primary">대본 준비 · 시간 계산</button></div>
+    <p class="note">슬라이드 사이에 &lt;&lt;슬라이드 넘김&gt;&gt;을 넣어 주세요. 이 표시는 읽지 않습니다. 표시가 없으면 한 슬라이드로 처리합니다.</p>
+    <label for="script-slide-durations">슬라이드별 목표 시간(초, 선택)</label><input id="script-slide-durations" type="text" placeholder="예: 60, 90, 30 · 비워 두면 대본 길이에 따라 배정">
+    <p class="note">쉼표로 구분하며 합계는 전체 목표 시간과 같아야 합니다. 그림 설명이나 시연 시간을 반영할 수 있습니다.</p>
     <p id="script-plan" class="note">대본과 목표 시간을 넣으면 구간별 예정 시간과 기준 속도를 계산합니다.</p>
   </details>
   <div class="voice-controls"><label><input id="voice-enabled" type="checkbox"> 이어폰 음성 안내</label><label for="voice-scope">안내 범위</label><select id="voice-scope"><option value="pace">빠름·느림만</option><option value="all">전체 안내</option></select><button id="voice-test" class="secondary" disabled>안내 음성 시험</button><span id="voice-status" class="muted"></span><p class="voice-note">기기의 소리가 꺼져 있으면 음성 안내가 들리지 않습니다.</p></div>
@@ -21,15 +24,31 @@
     <p id="microphone-message" class="microphone-message" role="status" aria-live="polite"></p>
     <p class="note">입력 확인 버튼을 누르면 잠깐 마이크를 열어 연결과 신호를 확인합니다. 확인 중에는 한 문장 말해 보세요. 장치를 바꾼 뒤에는 다시 확인하세요.</p>
   </section>
+  <section id="live-feedback" class="card live-feedback waiting" aria-labelledby="feedback-heading">
+    <div class="feedback-main">
+      <div class="feedback-heading"><h2 id="feedback-heading">지금 발표 속도</h2><span id="feedback-update" class="feedback-update">발표 준비</span></div>
+      <div class="feedback-result"><strong id="feedback-state" role="status" aria-live="polite">첫 문장을 기다려요</strong><span id="feedback-ratio">—</span></div>
+      <p id="feedback-delta" class="feedback-delta">현재 문장을 확인하면 계획과 비교해 드립니다.</p>
+      <div id="feedback-gauge" class="feedback-gauge" role="img" aria-label="속도 확인 대기"><div class="feedback-scale"><span id="feedback-marker" hidden></span></div><div class="feedback-scale-labels" aria-hidden="true"><span>느림</span><span>계획 범위 · 100%</span><span>빠름</span></div></div>
+      <p id="feedback-advice" class="feedback-advice">평소처럼 발표를 시작해 주세요.</p>
+    </div>
+    <div class="feedback-clock"><p id="feedback-clock-label">이 슬라이드 남은 시간</p><strong id="feedback-remaining">—</strong><p id="feedback-budget"></p><p id="feedback-position">대본 위치 확인 대기</p></div>
+    <p id="feedback-basis" class="feedback-basis">대본 위치로 추정한 진행 속도입니다. 실제 발음 속도나 내용 정확도와는 다릅니다.</p>
+  </section>
   <div class="layout">
     <aside class="card slide-list"><p class="eyebrow">YOUR FLOW</p><h2>발표 순서</h2><nav id="slides" aria-label="슬라이드 목록"></nav><p class="note">준비한 대본이나 자료의 순서에 따라 설명한 내용을 확인합니다.</p></aside>
     <section class="center">
       <div class="card focus"><div class="focus-top"><span id="slide-count" class="pill"></span><span id="session-status" class="muted">발표 준비</span></div><h2 id="slide-title"></h2><div class="focus-footer"><span id="slide-target" class="muted"></span><div><button id="previous" class="secondary" disabled>← 이전</button><button id="next" class="primary" disabled>다음 →</button></div></div></div>
       <div class="card keypoints"><div class="section-title"><h2>핵심 설명 항목</h2><span id="point-count" class="muted"></span></div><p id="judgment-status" class="judgment-status" role="status" aria-live="polite"></p><ul id="keypoints"></ul><p id="coach-note" class="note"></p></div>
       <div id="script-progress-card" class="card" hidden>
-        <div class="section-title"><h2>전체 목표 대비 진행 속도</h2><span id="script-pace-state" class="pace-status waiting">첫 문장 확인 대기</span></div>
+        <div class="section-title"><h2>슬라이드별 시간 진행</h2><span id="script-pace-state" class="pace-status waiting">첫 문장 확인 대기</span></div>
         <p id="script-progress"></p><p id="pace-status-note" class="pace-status-note"></p>
-        <dl class="pace-metrics">
+        <section id="script-slide-timing" hidden>
+          <p id="tracking-status" role="status"></p><p id="slide-live-time"></p><p id="slide-schedule"></p>
+          <div class="sentence-timing-wrap"><table><thead><tr><th scope="col">슬라이드</th><th scope="col">목표</th><th scope="col">소요</th><th scope="col">시간 차이</th><th scope="col">경계 기준</th></tr></thead><tbody id="slide-timing-rows"></tbody></table></div>
+          <p class="note">음성은 슬라이드가 바뀔 때 직전 슬라이드의 시간 차이를 한 번 안내합니다. 자동 전환은 다음 슬라이드 발화로 추정하며 실제 자료를 넘기지는 않습니다. 마지막 슬라이드는 발표 종료 후 아래 기록에 표시합니다.</p>
+        </section>
+        <dl id="legacy-pace-metrics" class="pace-metrics">
           <div><dt>전체 목표 시간</dt><dd id="pace-target">—</dd></div>
           <div><dt id="pace-measured-label">지연 제외 누적 시간</dt><dd id="pace-measured">—</dd></div>
           <div id="pace-planned-metric" hidden><dt>확인 문장 누적 배정</dt><dd id="pace-planned">—</dd></div>

@@ -98,7 +98,7 @@ class ScriptTests(unittest.TestCase):
             self.clock.advance(6)
             self.session.tick()
             self.assertEqual(self.session.pace,expected)
-            self.assertTrue(any(a['key'].startswith('pace:') for a in self.session.alerts))
+            self.assertFalse(any(a['key'].startswith('pace:') for a in self.session.alerts))
             self.clock.advance(20)
             self.session.tick()
             self.assertEqual(self.session.pace,'waiting')
@@ -159,7 +159,7 @@ class ScriptTests(unittest.TestCase):
         self.confirm_at('첫 문장은 목적을 설명합니다.', 16)
         self.clock.advance(5)
         self.session.tick()
-        self.assertTrue(self.active_pace_alerts())
+        self.assertFalse(self.active_pace_alerts())
         # A delayed error for older audio must not disappear just because newer
         # speech has a later timestamp and the first unit is already confirmed.
         self.session.ingest({'segment_id':'lost-old', 'text':'', 'start_sec':1, 'end_sec':2, 'status':'ERROR'})
@@ -196,21 +196,20 @@ class ScriptTests(unittest.TestCase):
         self.assertEqual(self.session.pace_candidate, 'fast')
         self.session.apply(job, self.coach.evaluate(job))
         self.assertEqual(self.session.pace, 'fast')
-        self.assertEqual(len(self.active_pace_alerts()), 1)
+        self.assertEqual(len(self.active_pace_alerts()), 0)
 
-    def test_pending_speech_immediately_retracts_previous_pace_alert(self):
+    def test_pending_speech_holds_sentence_diagnostic_without_voice(self):
         self.confirm_at('첫 문장은 목적을 설명합니다.', 16)
         self.clock.advance(5)
         self.session.tick()
         self.assertEqual(self.session.pace, 'fast')
-        self.assertEqual(len(self.active_pace_alerts()), 1)
+        self.assertEqual(len(self.active_pace_alerts()), 0)
         self.session.ingest({'segment_id':'pending-cut', 'text':'두 번째 문장은',
                              'start_sec':20, 'end_sec':21, 'endpoint_reason':'hard_max_duration'})
         self.assertEqual(self.session.pace, 'waiting')
         self.assertFalse(self.active_pace_alerts())
         self.assertEqual(self.session.pace_candidate, 'fast')
-        self.assertTrue(any(e['type']=='alert_retracted' and e['reason']=='new_speech_pending'
-                            for e in self.session.events))
+        self.assertFalse(any(a['key'].startswith('pace:') for a in self.session.alerts))
 
     def test_repeated_old_content_does_not_refresh_measurement_or_create_slow_notice(self):
         self.confirm_at('첫 문장은 목적을 설명합니다.', 16)
@@ -229,7 +228,7 @@ class ScriptTests(unittest.TestCase):
         self.confirm_at('첫 문장은 목적을 설명합니다.', 16)
         self.clock.advance(5)
         self.session.tick()
-        self.assertEqual(len(self.active_pace_alerts()), 1)
+        self.assertEqual(len(self.active_pace_alerts()), 0)
         self.clock.advance(1)
         job = self.session.ingest({'segment_id':'uncertain-new', 'text':'두 번째 문장은 비용이 달라집니다.',
                                    'start_sec':21, 'end_sec':22, 'endpoint_reason':'silence'})
@@ -269,7 +268,7 @@ class ScriptTests(unittest.TestCase):
         self.clock.advance(5)
         self.session.tick()
         self.assertEqual(self.session.pace, 'slow')
-        self.assertEqual([a['key'].split(':')[1] for a in self.active_pace_alerts()], ['slow'])
+        self.assertFalse(self.active_pace_alerts())
 
     def test_on_plan_cancels_fast_notice_and_has_no_voice_alert(self):
         self.confirm_at('첫 문장은 목적을 설명합니다.', 16)
@@ -285,25 +284,23 @@ class ScriptTests(unittest.TestCase):
         self.assertEqual(self.session.pace, 'on_plan')
         self.assertFalse(self.active_pace_alerts())
 
-    def test_repeat_notice_interval_uses_last_notice_not_clock_buckets(self):
-        # Crossing a 30-second wall-clock boundary must not repeat an alert
-        # that was spoken one second before that boundary.
+    def test_continuous_sentence_progress_never_emits_voice(self):
+        # Sentence pace is diagnostic; only completed slides can emit voice.
         self.session = ScriptSession(prepare_script(TEXT, 600), clock=self.clock)
         self.confirm_at('첫 문장은 목적을 설명합니다.', 22)
         self.clock.advance(6)
         self.session.tick()  # notice at 29
         notices = [e for e in self.session.events if e['type']=='alert_shown' and e['key'].startswith('pace:')]
-        self.assertEqual(len(notices), 1)
+        self.assertEqual(len(notices), 0)
         self.confirm_at('두 번째 문장은 비용을 설명합니다.', 29, applied_at=30)
         self.session.tick()
         notices = [e for e in self.session.events if e['type']=='alert_shown' and e['key'].startswith('pace:')]
-        self.assertEqual(len(notices), 1)
+        self.assertEqual(len(notices), 0)
         self.confirm_at('세 번째 문장은 일정을 설명합니다.', 57, applied_at=58)
         self.clock.advance(5)
         self.session.tick()
         notices = [e for e in self.session.events if e['type']=='alert_shown' and e['key'].startswith('pace:')]
-        self.assertEqual(len(notices), 2)
-        self.assertGreaterEqual(notices[1]['shown_sec']-notices[0]['shown_sec'], 30)
+        self.assertEqual(len(notices), 0)
 
     def test_passed_missing_section_does_not_trigger_pace(self):
         self.confirm_at('첫 문장은 목적을 설명합니다.', 16)
@@ -320,7 +317,7 @@ class ScriptTests(unittest.TestCase):
         self.confirm_at('첫 문장은 목적을 설명합니다.', 16)
         self.clock.advance(5)
         self.session.tick()
-        self.assertTrue(self.active_pace_alerts())
+        self.assertFalse(self.active_pace_alerts())
         self.session.stop()
         self.assertEqual(self.session.pace, 'waiting')
         self.assertFalse(self.active_pace_alerts())
@@ -332,7 +329,7 @@ class ScriptTests(unittest.TestCase):
         self.session.ingest({'segment_id':'empty-end', 'text':'', 'start_sec':20, 'end_sec':21, 'status':'OK'})
         self.assertEqual(self.session.pace, 'fast')
         self.assertEqual(self.session.progress()['measured_elapsed_sec'], 16)
-        self.assertTrue(self.active_pace_alerts())
+        self.assertFalse(self.active_pace_alerts())
 
     def test_empty_tail_does_not_damage_confirmed_or_pending_content(self):
         self.feed('첫 문장은 목적을 설명합니다.')
@@ -340,13 +337,13 @@ class ScriptTests(unittest.TestCase):
         self.session.ingest({'segment_id':'empty','text':'','start_sec':18,'end_sec':18.022,'status':'OK'})
         self.assertEqual(json.dumps(self.session.states),before)
 
-    def test_jump_candidate_is_included_without_shrinking_full_script(self):
+    def test_initial_window_does_not_jump_to_distant_lexical_match(self):
         deck=prepare_script('\n'.join(f'항목 {i}의 연구 결과를 설명합니다.' for i in range(30)),120)
         session=ScriptSession(deck,clock=self.clock)
         self.clock.advance(20)
         job=session.ingest({'segment_id':'jump','text':'항목 29의 연구 결과를 설명합니다.','start_sec':16,'end_sec':19})
-        self.assertIn('script-30',[p['keypoint_id'] for p in job['slide']['keypoints']])
-        self.assertLessEqual(len(job['slide']['keypoints']),9)
+        self.assertNotIn('script-30',[p['keypoint_id'] for p in job['slide']['keypoints']])
+        self.assertEqual(len(job['slide']['keypoints']),4)
         self.assertEqual(len(session.deck['slides'][0]['keypoints']),30)
 
     def test_uncertain_passed_section_suppresses_speed_judgment(self):

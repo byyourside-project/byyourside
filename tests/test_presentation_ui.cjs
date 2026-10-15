@@ -369,5 +369,94 @@ function select(value) {
   }
   check(elements.get('voice-enabled').checked === false && !requests.some(item => item.url === '/api/voice_test'),
     '즉시 속도 표시와 시간 표 검증 중에도 음성을 자동으로 켜거나 재생하지 않음');
+  const slideUnits = [
+    {keypoint_id:'one', text:'첫 슬라이드입니다.', slide_index:0, planned_duration_sec:30},
+    {keypoint_id:'two', text:'실험 결과입니다.', slide_index:1, planned_duration_sec:30},
+  ];
+  const trackingDeck = {...deck, script_text:'첫 슬라이드입니다.\n<<슬라이드 넘김>>\n실험 결과입니다.', total_duration_sec:60,
+    slides:[{slide_id:'script',title:'대본',target_duration_sec:60,keypoints:slideUnits}],
+    script_plan:{units:slideUnits, slides:[
+      {slide_id:'script-slide-1',title:'슬라이드 1',target_duration_sec:30,keypoint_ids:['one']},
+      {slide_id:'script-slide-2',title:'슬라이드 2',target_duration_sec:30,keypoint_ids:['two']},
+    ]}};
+  const trackingState = {...base,deck:trackingDeck,session:{...session,deck:trackingDeck,issues:[],
+    states:{one:{status:'unconfirmed',reason:'미확인'},two:{status:'uncertain',reason:'수치 확인 필요'}},
+    script_progress:{units:slideUnits,fraction:0,missing_ids:[],
+      tracking:{index:1,phase:'partial',slide_index:1,reason:'현재 문장을 찾았습니다.',recovery:false},
+      slide_timing:{elapsed_sec:5,target_duration_sec:30,reliable:true,pace:'fast',schedule_delta_sec:-8,
+        records:[{slide_index:0,target_duration_sec:30,actual_duration_sec:20,delta_sec:-10,reliable:true,estimated:true}]}}}};
+  render(trackingState);
+  check(elements.get('slide-count').textContent === 'SLIDE 02 / 02' && elements.get('keypoints').children.length === 1,
+    '논리 슬라이드와 해당 슬라이드 문장을 표시');
+  check(elements.get('script-progress').textContent.includes('현재 문장 2/2') && elements.get('script-progress').textContent.includes('내용 일치 확인 0%'),
+    '발화 위치 이동과 내용 확인 비율을 분리');
+  check(elements.get('legacy-pace-metrics').hidden && !elements.get('script-slide-timing').hidden && elements.get('sentence-timing').hidden,
+    '새 대본 모드에서는 슬라이드 시간 기록을 표시');
+  check(elements.get('slide-timing-rows').children[0].children[3].textContent.includes('10.0초 앞섬') && elements.get('slide-timing-rows').children[0].children[4].textContent === '발화로 추정',
+    '직전 슬라이드 시간 차이와 경계 추정을 함께 표시');
+  check(elements.get('keypoints').children[0].className === 'current-sentence' && elements.get('next').disabled && !elements.get('previous').disabled,
+    '현재 문장 강조와 논리 슬라이드 탐색 버튼 상태');
+  responseState = trackingState;
+  await elements.get('keypoints').children[0].children[1].children.at(-1).listeners.click();
+  check(requests.at(-1).url === '/api/resync' && JSON.parse(requests.at(-1).options.body).index === 1,
+    '여기서 이어가기가 정확한 문장 위치를 서버에 전달');
+  render({...trackingState, session:{...trackingState.session,status:'ended'}});
+  check(elements.get('keypoints').children[0].children[1].children.at(-1).disabled,
+    '종료된 발표에서는 위치 변경 비활성화');
+  check(elements.get('script-slide-durations').disabled === false,
+    '발표 종료 후 슬라이드 목표 시간을 다시 편집 가능');
+  const liveState = {...trackingState, audio_input_mode:'manual', audio_status:'manual', session:{...trackingState.session,
+    session_id:'live-feedback-test',status:'running',elapsed_sec:24,judgment_status:'ready',
+    script_progress:{...trackingState.session.script_progress,
+      tracking:{index:0,phase:'complete',slide_index:0,audio_end_sec:20,misses:0,reason:'위치 확인'},
+      slide_timing:{elapsed_sec:24,target_duration_sec:30,planned_elapsed_sec:30,measured_elapsed_sec:20,
+        ratio:1.5,reliable:true,pace:'fast',schedule_delta_sec:-40,records:[]}}}};
+  const live = (sessionChanges = {}, trackingChanges = {}, timingChanges = {}, dataChanges = {}) => ({...liveState,...dataChanges,
+    session:{...liveState.session,...sessionChanges,script_progress:{...liveState.session.script_progress,
+      tracking:{...liveState.session.script_progress.tracking,...trackingChanges},
+      slide_timing:{...liveState.session.script_progress.slide_timing,...timingChanges}}}});
+  render(live());
+  check(elements.get('feedback-state').textContent === '계획보다 빨라요' && elements.get('feedback-ratio').textContent === '150%' &&
+    elements.get('feedback-delta').textContent.includes('10초 앞서'), '상단 피드백은 전체 누적 차이 대신 현재 슬라이드의 속도와 시간 차이를 표시');
+  check(elements.get('feedback-remaining').textContent === '00:06' && elements.get('feedback-basis').textContent.includes('4.0초 전'),
+    '계속 흐르는 슬라이드 시계와 발화 근거 시각을 구분');
+  render(live({elapsed_sec:28,judgment_status:'evaluating'}, {}, {elapsed_sec:28}));
+  check(elements.get('feedback-ratio').textContent === '150%' && elements.get('feedback-update').textContent.includes('직전 속도') &&
+    elements.get('feedback-remaining').textContent === '00:02', '다음 발화 처리 중에도 직전 속도를 유지하고 남은 시간은 갱신');
+  render(live({elapsed_sec:36}, {}, {elapsed_sec:36}));
+  check(elements.get('feedback-ratio').textContent === '—' && elements.get('feedback-marker').hidden &&
+    elements.get('feedback-delta').textContent.includes('최근 발화'), '15초 넘게 오래된 근거를 현재 속도로 안내하지 않음');
+  render(live({elapsed_sec:33}, {audio_end_sec:30}, {elapsed_sec:33,measured_elapsed_sec:30,planned_elapsed_sec:18,ratio:.6,pace:'slow'}));
+  check(elements.get('feedback-state').textContent === '계획보다 느려요' && elements.get('feedback-delta').textContent.includes('12초 뒤처') &&
+    elements.get('feedback-clock-label').textContent.includes('초과') && elements.get('feedback-remaining').textContent === '00:03',
+    '느림의 시간 차이와 슬라이드 목표 시간 초과를 구분');
+  render(live({}, {}, {ratio:1,planned_elapsed_sec:20,pace:'on_plan'}));
+  check(elements.get('feedback-state').textContent === '계획에 맞게 진행 중' && elements.get('feedback-marker').style.left === '50%',
+    '계획 속도는 게이지 중앙에 표시');
+  render(live({}, {misses:1}, {reliable:false,ratio:null}));
+  check(elements.get('feedback-ratio').textContent === '—' && !elements.get('feedback-advice').textContent.includes('속도를 높여'),
+    '위치를 놓치면 과거 속도에 따른 행동 안내를 지움');
+  render(live({}, {phase:'manual',audio_end_sec:-1}, {reliable:false,ratio:null}));
+  check(elements.get('feedback-marker').hidden && elements.get('feedback-state').textContent.includes('위치를 확인'),
+    '수동 위치 변경 후 이전 속도를 재사용하지 않음');
+  render(live({}, {}, {}, {audio_input_mode:'mic',audio_status:'error'}));
+  check(elements.get('feedback-ratio').textContent === '—' && elements.get('feedback-state').textContent.includes('음성 입력'),
+    '마이크 오류 중 남아 있는 모델 수치를 속도 안내로 사용하지 않음');
+  render(live({}, {}, {ratio:3,planned_elapsed_sec:60}));
+  check(elements.get('feedback-ratio').textContent === '300%' && elements.get('feedback-marker').style.left === '98%',
+    '큰 속도 차이도 숫자는 유지하며 게이지 밖으로 넘치지 않음');
+  render(live({status:'ended'}, {}, {reliable:false,ratio:null,elapsed_sec:50,
+    records:[{slide_index:0,end_source:'session_end',target_duration_sec:30,actual_duration_sec:50,delta_sec:20,reliable:true}]}));
+  check(elements.get('feedback-update').textContent.includes('발표 종료') && elements.get('feedback-ratio').textContent === '60%' &&
+    elements.get('feedback-basis').textContent.includes('체류 시간'), '종료 후에는 마지막 슬라이드의 실제 종료 시간 기준으로 표시');
+  render(live());
+  vm.runInContext('renderLiveFeedback(current, true)', context);
+  check(elements.get('feedback-ratio').textContent === '—' && elements.get('feedback-remaining').textContent === '—' &&
+    elements.get('feedback-state').textContent.includes('서버 연결'), '연결 실패 시 고정된 숫자를 실시간 수치처럼 표시하지 않음');
+  render(live());
+  check(elements.get('feedback-ratio').textContent === '150%', '연결 복구 후 새 상태로 피드백 복원');
+  render({...base,deck:trackingDeck});
+  check(elements.get('feedback-state').textContent === '첫 문장을 기다려요' && elements.get('feedback-marker').hidden,
+    '새 발표 준비 상태에 이전 세션의 속도가 남지 않음');
   console.log(`UI DOM 검증 ${passed}개 통과`);
 })().catch(error => {console.error(error); process.exitCode = 1;});

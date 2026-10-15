@@ -97,7 +97,7 @@ def _requested_points(job, points):
     Similarity chooses questions for the model; it never approves an answer.
     Generic slide jobs continue to evaluate every original keypoint.
     """
-    if not job.get("script_tracking") or len(points) <= 3:
+    if "script_position_ids" in job or not job.get("script_tracking") or len(points) <= 3:
         return points
     recent = job["segments"][-2:]
     if not recent:
@@ -122,7 +122,7 @@ def _requested_points(job, points):
 
 class OllamaCoach(LocalHttpCoach):
     name = "ollama_local"
-    prompt_version = "semantic_v16_focused_independent_evidence"
+    prompt_version = "semantic_v17_ordered_position_and_facts"
 
     def __init__(self, model, base_url="http://127.0.0.1:11434", timeout=2.0):
         if not isinstance(model, str) or not model.strip() or model.endswith((":cloud", "-cloud")):
@@ -150,7 +150,11 @@ class OllamaCoach(LocalHttpCoach):
         if self.model_info is None:
             self.verify_model()
         segment_ids = [s["segment_id"] for s in job["segments"]]
-        groups = joined_utterances(job["segments"])
+        # Keep source segment identities for slide boundaries; the model can
+        # combine adjacent fragments without assigning every sentence the same
+        # large merged evidence interval.
+        groups = ([{"numbers": [i], "text": s["text"]} for i, s in enumerate(job["segments"], 1)]
+                  if "script_position_ids" in job else joined_utterances(job["segments"]))
         evidence_groups = {number: group["numbers"] for number, group in enumerate(groups, 1)}
         requested = _requested_points(job, points)
         requested_ids = {point["keypoint_id"] for point in requested}
@@ -164,13 +168,33 @@ class OllamaCoach(LocalHttpCoach):
                                      "e": {"type": "array", "maxItems": len(groups),
                                            "items": {"type": "integer", "enum": list(evidence_groups)}}}}
                       for p in requested}}
+        tracking = "script_position_ids" in job
+        if tracking:
+            schema["required"].append("position")
+            schema["properties"]["position"] = {
+                "type": "object", "additionalProperties": False, "required": ["id", "phase", "e"],
+                "properties": {"id": {"enum": [None] + [point_keys[k] for k in job["script_position_ids"]]},
+                               "phase": {"enum": ["none", "ambiguous", "partial", "complete"]},
+                               "e": {"type": "array", "maxItems": len(groups),
+                                     "items": {"type": "integer", "enum": list(evidence_groups)}}}}
         model_input = {"slide_title": job["slide"]["title"], "keypoints": {point_keys[p["keypoint_id"]]: p["text"] for p in requested},
                        "utterances": [{"number": number, "text": group["text"]} for number, group in enumerate(groups, 1)]}
+        system = SYSTEM_PROMPT
+        if tracking:
+            model_input["position_candidates"] = [point_keys[k] for k in job["script_position_ids"]]
+            model_input["current_sentence"] = point_keys[job["script_cursor_id"]]
+            model_input["latest_transcript"] = job["segments"][-1]["text"]
+            system += """\n추가로 position 객체를 반환한다: {"id": 후보ID 또는 null, "phase": "partial"/"complete"/"none"/"ambiguous", "e": [근거 발화 번호]}.
+position은 최신 발화가 지금 어느 대본 문장인지 찾는 별도 판단이다. 내용 일치(s)와 분리한다. 숫자가 다르거나 STT 오타가 있어도 문장을 특정할 근거가 충분하면 위치를 찾을 수 있으나 s=1로 바꾸지 않는다.
+최신 발화가 여러 문장을 포함하면 실제로 말한 마지막 문장을 선택한다. 과거 문맥만으로 위치를 선택하지 않는다. 일부만 말했으면 partial, 해당 문장의 발화가 끝났으면 complete다.
+position_candidates에 있는 ID만 선택한다. 후보가 비슷하거나 반복되어 하나를 특정할 수 없으면 ambiguous, 해당 문장이 없으면 none으로 두고 id=null,e=[]로 반환한다. 무조건 후보를 고르거나 가장 뒤 문장을 택하지 않는다. 이전 문장들은 내용 검토용 문맥이며 위치 후보가 아니다.
+선택한 위치의 항목은 관련 발화 근거가 있어야 하므로 s=0 또는 s=1이어야 한다. s=-1인 항목을 position으로 선택하면 모순이다. 모든 항목이 미언급이면 position은 반드시 none이다.
+"""
         payload = {"model": self.model, "stream": False, "think": False, "format": schema, "keep_alive": "30m",
-                   "messages": [{"role": "system", "content": SYSTEM_PROMPT},
+                   "messages": [{"role": "system", "content": system},
                                 {"role": "user", "content": json.dumps(model_input, ensure_ascii=False)}],
                    "options": {"temperature": 0, "num_ctx": 4096,
-                               "num_predict": min(1024, max(128, len(requested) * 48 + 32))}}
+                               "num_predict": min(3072, max(192, len(requested) * 48 + 96))}}
         started = time.perf_counter()
         response = self._request(self.url, json.dumps(payload, ensure_ascii=False).encode())
         self.last_metrics = {"wall_ms": (time.perf_counter() - started) * 1000,
@@ -186,7 +210,8 @@ class OllamaCoach(LocalHttpCoach):
         if not isinstance(content, str):
             raise ValueError("Ollama 응답에 텍스트 content가 없습니다.")
         compact = json.loads(content)
-        if not isinstance(compact, dict) or set(compact) != set(point_keys.values()):
+        expected_keys = set(point_keys.values()) | ({"position"} if tracking else set())
+        if not isinstance(compact, dict) or set(compact) != expected_keys:
             raise ValueError("모델 응답의 핵심 항목 ID가 일치하지 않습니다.")
         labels = {1: "explained", 0: "uncertain", -1: "unconfirmed"}
         reasons = {1: "로컬 모델이 발화의 의미와 핵심 항목의 일치를 확인했습니다.",
@@ -249,6 +274,32 @@ class OllamaCoach(LocalHttpCoach):
                 self.last_metrics.setdefault("guard_decisions", []).append({"keypoint_id": point["keypoint_id"], "reason_code": reason_code})
             judgments.append(judgment)
         result = {"judgments": judgments}
+        if tracking:
+            value = compact["position"]
+            if not isinstance(value, dict) or set(value) != {"id", "phase", "e"}:
+                raise ValueError("대본 위치 응답 형식이 올바르지 않습니다.")
+            reverse = {v: k for k, v in point_keys.items()}
+            selected, phase, evidence = value["id"], value["phase"], value["e"]
+            if phase not in ("none", "ambiguous", "partial", "complete") or not isinstance(evidence, list):
+                raise ValueError("대본 위치 상태가 올바르지 않습니다.")
+            if any(isinstance(e, bool) or not isinstance(e, int) or e not in evidence_groups for e in evidence):
+                raise ValueError("대본 위치의 근거 번호가 올바르지 않습니다.")
+            if phase in ("none", "ambiguous"):
+                if selected is not None or evidence:
+                    raise ValueError("불명확한 위치에서 문장을 선택했습니다.")
+                kid = None
+            else:
+                if not isinstance(selected, str) or reverse.get(selected) not in job["script_position_ids"] or not evidence:
+                    raise ValueError("대본 위치가 후보 범위를 벗어났습니다.")
+                kid = reverse[selected]
+                if unfinished_tail(job["segments"][-1]["text"]):
+                    phase = "partial"
+            sources = list(dict.fromkeys(s for e in evidence for s in evidence_groups[e]))
+            if kid is not None and next(j for j in judgments if j["keypoint_id"] == kid)["status"] == "unconfirmed":
+                self.last_metrics["position_guard"] = "unrelated_or_unsupported_position"
+                kid, phase, sources = None, "none", []
+            result["position"] = {"keypoint_id": kid, "phase": phase,
+                                  "evidence_segment_ids": [segment_ids[s - 1] for s in sources]}
         # Session.apply performs evidence/id/status validation, independently of schema decoding.
         return result
 

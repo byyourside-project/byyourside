@@ -36,19 +36,93 @@ async function command(action, data) {
   renderMicrophoneState();
   renderVoiceState(false);
   renderPreparationState();
-  try { render(await api(action, data)); return true; } catch (e) { error(e.message); return false; }
+  try { render(await api(action, data)); if (action === 'start' && current?.session?.status === 'running') $('live-feedback').scrollIntoView?.({behavior:'smooth',block:'start'}); return true; } catch (e) { error(e.message); return false; }
   finally { commandRevision++; busy = false; pendingCommand = null; if (action === 'start' && current) render(current); else {renderMicrophoneState(); renderVoiceState(false); renderPreparationState();} }
 }
 function isStartPreparing() { return current?.start_preparing === true || pendingCommand === 'start'; }
 function renderPreparationState() {
   const data = current || {}, preparing = isStartPreparing(), active = !!data.session && data.session.status !== 'ended';
-  for (const id of ['script-text','script-duration','prepare-script','input-mode','upload','deck-file']) $(id).disabled = preparing || active;
+  for (const id of ['script-text','script-duration','script-slide-durations','prepare-script','input-mode','upload','deck-file']) $(id).disabled = preparing || active;
   const failed = data.coach_status?.status === 'error' && !preparing;
   const failureMessage = typeof data.coach_status?.message === 'string' && data.coach_status.message.trim() ? data.coach_status.message.trim() : '준비를 완료하지 못했습니다.';
   const failureLabel = failureMessage.startsWith('모델 준비 실패') ? failureMessage : `모델 준비 실패: ${failureMessage}`;
   $('coach-preparation').hidden = !preparing && !failed;
   $('coach-preparation').classList.toggle('failed', failed);
   $('coach-preparation').textContent = preparing ? '모델 준비 중 · 아직 발표를 시작하지 마세요. 준비가 끝난 뒤 발표 타이머와 마이크가 시작됩니다.' : failed ? `${failureLabel} 다시 발표 시작을 눌러 재시도할 수 있습니다.` : '';
+  renderLiveFeedback(current);
+}
+function renderLiveFeedback(data, disconnected = false) {
+  if (!data) return;
+  const s = data.session, script = s?.script_progress, tracking = script?.tracking, timing = script?.slide_timing;
+  const index = tracking?.slide_index ?? s?.index ?? 0;
+  const slide = (data.deck.script_plan?.slides || data.deck.slides)[index];
+  const preparing = isStartPreparing(), ended = s?.status === 'ended', active = !!s && !ended && !preparing;
+  const pending = ['evaluating','waiting_for_silence'].includes(s?.judgment_status) || s?.status === 'stopping';
+  const spent = preparing ? 0 : timing?.elapsed_sec ?? s?.slide_elapsed_sec ?? 0;
+  const target = slide.target_duration_sec, remaining = target - spent;
+  $('feedback-clock-label').textContent = disconnected ? '시간 확인 중단' : remaining < 0 ? '이 슬라이드 초과 시간' : '이 슬라이드 남은 시간';
+  $('feedback-remaining').textContent = disconnected ? '—' : seconds(Math.abs(remaining));
+  $('feedback-remaining').className = remaining < 0 ? 'over' : '';
+  $('feedback-budget').textContent = `${index+1}번 슬라이드 · 경과 ${seconds(spent)} / 목표 ${seconds(target)}`;
+  $('feedback-position').textContent = tracking && !preparing ? `현재 문장 ${tracking.index+1}/${script.units.length} · ${tracking.phase === 'complete' ? '발화 완료' : tracking.phase === 'partial' ? '말하는 중' : '위치 확인 중'}` : '대본 위치 확인 대기';
+
+  let pace = 'waiting', title = '첫 문장을 기다려요', ratio = null, delta = null;
+  let update = !s || preparing ? '발표 준비' : pending ? '최신 발화 확인 중' : '위치 확인 중';
+  let detail = '현재 문장을 확인하면 계획과 비교해 드립니다.';
+  let advice = !s ? '평소처럼 발표를 시작해 주세요.' : '첫 문장을 확인하고 있어요. 자연스럽게 이어가세요.';
+  let basis = '대본 위치로 추정한 진행 속도입니다. 실제 발음 속도나 내용 정확도와는 다릅니다.';
+  const audioProblem = active && data.audio_input_mode === 'mic' && ['error','stopped','recovering','loading'].includes(data.audio_status);
+  const age = tracking && Number.isFinite(tracking.audio_end_sec) && tracking.audio_end_sec >= 0 ? Math.max(0, s.elapsed_sec - tracking.audio_end_sec) : null;
+  // Use the last measured speech position while inference runs. Never treat
+  // the polling clock as new speech evidence or carry pace across a resync.
+  const usable = timing?.reliable === true && Number.isFinite(timing.ratio) && timing.ratio > 0 &&
+    Number.isFinite(timing.measured_elapsed_sec) && Number.isFinite(timing.planned_elapsed_sec) &&
+    age !== null && age <= 15 && !tracking.misses && ['partial','complete'].includes(tracking.phase);
+  const final = ended ? timing?.records?.at(-1) : null;
+  if (disconnected) {
+    title = '서버 연결을 확인해 주세요'; update = '연결 끊김';
+    detail = '속도와 시간 갱신이 멈췄습니다.'; advice = '연결이 복구되면 다시 표시합니다.';
+  } else if (preparing) {
+    title = '발표를 준비하고 있어요'; update = '시작 대기';
+    detail = '준비가 끝나면 타이머와 음성 인식이 시작됩니다.'; advice = '발표 시작 안내를 기다려 주세요.';
+  } else if (audioProblem || s?.issues?.length) {
+    title = audioProblem ? '음성 입력 확인이 필요해요' : '속도 판단을 잠시 보류해요'; update = ended ? '발표 종료' : '입력 확인 필요';
+    detail = '입력이 불확실해 빠름·느림을 표시하지 않습니다.'; advice = '마이크 입력과 기록 상태를 확인해 주세요.';
+  } else if (ended && final?.end_source === 'session_end' && final.reliable && final.actual_duration_sec > 0) {
+    ratio = final.target_duration_sec / final.actual_duration_sec;
+    delta = final.actual_duration_sec - final.target_duration_sec;
+    basis = '마지막 슬라이드의 체류 시간 기준입니다. 내용 확인 결과는 별도로 확인해 주세요.';
+  } else if (usable && !ended) {
+    ratio = timing.ratio;
+    delta = timing.measured_elapsed_sec - timing.planned_elapsed_sec;
+    basis = `${age.toFixed(1)}초 전 발화 기준 · 대본 위치로 추정 · 인식·판정 대기 시간은 속도 계산에서 제외`;
+  } else if (ended) {
+    title = '발표를 마쳤어요'; update = '발표 종료';
+    detail = '속도를 확정할 수 있는 근거가 부족합니다.'; advice = '아래에서 문장별 확인 결과를 살펴보세요.';
+  } else if (tracking?.misses || tracking?.phase === 'manual' || (age !== null && !usable)) {
+    title = '대본 위치를 확인하고 있어요'; update = pending ? '최신 발화 확인 중' : '속도 판단 보류';
+    detail = age > 15 ? '최근 발화가 확인되면 속도를 다시 표시합니다.' : '현재 위치가 불확실해 속도를 잠시 보류합니다.';
+    advice = '다음 문장을 이어가거나 대본에서 ‘여기서 이어가기’를 눌러 주세요.';
+  }
+  if (ratio !== null) {
+    pace = ratio > 1.25 + 1e-9 ? 'fast' : ratio < .75 - 1e-9 ? 'slow' : 'on_plan';
+    title = {fast:'계획보다 빨라요',slow:'계획보다 느려요',on_plan:'계획에 맞게 진행 중'}[pace];
+    const difference = Math.round(Math.abs(delta));
+    detail = difference < 1 ? '이 슬라이드 계획과 거의 같아요.' : `이 슬라이드 계획보다 약 ${difference}초 ${delta < 0 ? '앞서고 있어요' : '뒤처지고 있어요'}.`;
+    advice = {fast:'다음 설명은 조금 여유 있게 이어가세요.',slow:'남은 핵심 내용을 중심으로 조금 속도를 높여 보세요.',on_plan:'지금 흐름을 유지하세요.'}[pace];
+    update = ended ? '발표 종료 · 마지막 슬라이드' : pending ? '최신 발화 확인 중 · 직전 속도' : '마지막 확인 속도';
+    if (ended) advice = '아래에서 문장별 확인 결과와 슬라이드 기록을 살펴보세요.';
+  }
+  $('live-feedback').className = `card live-feedback ${pace}${active ? ' is-active' : ''}`;
+  if ($('feedback-state').textContent !== title) $('feedback-state').textContent = title;
+  $('feedback-ratio').textContent = ratio !== null ? `${Math.round(ratio*100)}%` : '—';
+  $('feedback-update').textContent = update;
+  $('feedback-delta').textContent = detail;
+  $('feedback-advice').textContent = advice;
+  $('feedback-basis').textContent = basis;
+  $('feedback-marker').hidden = ratio === null;
+  $('feedback-marker').style.left = ratio !== null ? `${Math.max(2,Math.min(98,(ratio-.5)*100))}%` : '50%';
+  $('feedback-gauge').setAttribute('aria-label', ratio !== null ? `${title}. 계획 대비 진행 속도 ${Math.round(ratio*100)}%. ${detail}` : title);
 }
 function renderVoiceState(syncSelection = true) {
   const data = current || {}, scope = data.voice_scope === 'all' ? 'all' : 'pace';
@@ -67,6 +141,9 @@ function renderVoiceState(syncSelection = true) {
   }
 }
 function renderScriptPace(script, deck) {
+  $('script-slide-timing').hidden = !script.tracking;
+  $('legacy-pace-metrics').hidden = !!script.tracking;
+  if (script.tracking) {renderScriptTracking(script); return;}
   const display = script.display_pace && typeof script.display_pace === 'object' && !Array.isArray(script.display_pace) ? script.display_pace : null;
   const source = display || script, reliable = source.reliable === true;
   const effectivePace = reliable ? source.pace : 'waiting';
@@ -112,6 +189,34 @@ function renderScriptPace(script, deck) {
     return row;
   }) : []));
   $('pace-explanation').textContent = display ? '전체 계획 대비 속도는 확인한 문장들의 누적 배정 시간과 지연을 뺀 완료 시각을 비교합니다. 문장 속도는 해당 문장의 배정 시간과 실제 소요를 비교합니다. 음성 안내는 별도의 안정화 조건을 적용합니다.' : '계획 속도는 100%입니다. 실제 발음 속도와 다르며, 추적이 불확실하면 판단을 보류합니다.';
+}
+function renderScriptTracking(script) {
+  const tracking = script.tracking, timing = script.slide_timing;
+  const labels = {fast:'계획보다 앞섬',slow:'계획보다 늦음',on_plan:'계획 범위',waiting:'위치 확인 대기'};
+  const pace = timing.reliable ? timing.pace : 'waiting';
+  const duration = n => `${n.toFixed(1)}초`;
+  $('script-pace-state').textContent = current?.session?.status === 'ended' ? '발표 종료' : labels[pace];
+  $('script-pace-state').className = 'pace-status ' + pace;
+  const phase = {waiting:'확인 대기',manual:'직접 선택',partial:'말하는 중',complete:'발화 완료'}[tracking.phase];
+  $('script-progress').textContent = `현재 문장 ${tracking.index+1}/${script.units.length} · ${phase} · 내용 일치 확인 ${Math.round(script.fraction*100)}%`;
+  $('tracking-status').textContent = tracking.reason + (tracking.recovery ? ' 현재 슬라이드에서 탐색 범위를 넓혔습니다.' : '');
+  $('slide-live-time').textContent = `${tracking.slide_index+1}번 슬라이드 · 경과 ${duration(timing.elapsed_sec)} / 목표 ${duration(timing.target_duration_sec)}`;
+  const delta = timing.schedule_delta_sec;
+  $('slide-schedule').textContent = Number.isFinite(delta) ? `현재 대본 위치 기준 전체 계획보다 약 ${duration(Math.abs(delta))} ${delta > 0 ? '늦음' : '앞섬'} · 추정` : '전체 계획 차이는 현재 위치를 확인한 뒤 표시합니다.';
+  $('slide-timing-rows').replaceChildren(...timing.records.map(record => {
+    const row = node('tr');
+    row.append(node('th', `${record.slide_index+1}번`), node('td', duration(record.target_duration_sec)),
+      node('td', record.reliable ? duration(record.actual_duration_sec) : '판단 보류'),
+      node('td', record.reliable ? `${duration(Math.abs(record.delta_sec))} ${record.delta_sec > 0 ? '늦음' : '앞섬'}` : '경계 불명확'),
+      node('td', !record.reliable ? '경계 확인 필요' : record.estimated ? '발화로 추정' : '직접 전환·종료'));
+    return row;
+  }));
+  $('pace-status-note').hidden = false;
+  $('pace-status-note').textContent = '화면의 진행은 대본 위치 기준 추정입니다. 건너뛴 문장은 내용 확인 완료로 처리하지 않습니다.';
+  $('pace-reason').textContent = '내용이 다르거나 STT에 오타가 있어도 위치를 찾을 수 있습니다. 불명확하면 이동을 보류합니다.';
+  $('pace-timing-note').textContent = '현재 위치가 다르면 위 문장의 “여기서 이어가기”를 누르세요. 이전·다음 버튼은 슬라이드 전환 시각도 기록합니다.';
+  $('sentence-timing').hidden = true;
+  $('pace-explanation').textContent = '발음 속도가 아니라 목표 시간 대비 진행을 안내합니다. 자동 경계는 추정치이며 내용 생략 여부는 별도로 확인하세요.';
 }
 function microphoneDeviceId() { return selectedMicrophone === '' ? null : Number(selectedMicrophone); }
 function renderMicrophoneState() {
@@ -182,7 +287,8 @@ async function refreshMicrophones() {
 }
 function render(data) {
   current = data;
-  const s = data.session, deck = s ? s.deck : data.deck, index = s ? s.index : 0;
+  const s = data.session, deck = s ? s.deck : data.deck;
+  const index = s?.script_progress?.tracking?.slide_index ?? (s ? s.index : 0);
   if (!microphoneSelectionInitialized) {
     microphoneSelectionInitialized = true;
     const requested = data.audio_requested_device_id;
@@ -201,13 +307,14 @@ function render(data) {
       $('microphone-device').value = selectedMicrophone;
     }
   }
-  const slide = deck.slides[index], running = s && s.status === 'running';
-  $('deck-title').textContent = deck.title;
   const script = s?.script_progress, plan = deck.script_plan;
-  if (plan && !$('script-text').value) {$('script-text').value = deck.script_text; $('script-duration').value = deck.total_duration_sec;}
+  const displaySlides = plan?.slides ? plan.slides.map(item => ({...item, keypoints: deck.slides.flatMap(x => x.keypoints).filter(p => item.keypoint_ids.includes(p.keypoint_id))})) : deck.slides;
+  const slide = displaySlides[index], running = s && s.status === 'running';
+  $('deck-title').textContent = deck.title;
+  if (plan && !$('script-text').value) {$('script-text').value = deck.script_text; $('script-duration').value = deck.total_duration_sec; $('script-slide-durations').value = (deck.script_slide_durations_sec || []).join(', ');}
   $('script-progress-card').hidden = !script;
   if (script) renderScriptPace(script, deck);
-  $('script-plan').textContent = plan ? `대본 ${plan.units.length}구간 · 목표 ${seconds(deck.total_duration_sec)} · 기준 분당 ${Math.round(plan.baseline_units_per_min)}글자 (공백·문장부호 제외)` : '대본과 목표 시간을 넣으면 구간별 예정 시간과 기준 속도를 계산합니다.';
+  $('script-plan').textContent = plan ? `대본 ${plan.units.length}문장 · ${displaySlides.length}슬라이드 · 목표 ${seconds(deck.total_duration_sec)} · 슬라이드별 ${displaySlides.map(item => item.target_duration_sec.toFixed(1)+'초').join(' / ')}` : '대본과 목표 시간을 넣으면 슬라이드별 예정 시간을 계산합니다.';
   renderPreparationState();
   renderVoiceState();
 
@@ -219,11 +326,11 @@ function render(data) {
   $('stop').disabled = !running;
   $('export').disabled = !s;
   $('previous').disabled = !running || index === 0;
-  $('next').disabled = !running || index === deck.slides.length - 1;
-  $('slide-count').textContent = `SLIDE ${String(index+1).padStart(2,'0')} / ${String(deck.slides.length).padStart(2,'0')}`;
+  $('next').disabled = !running || index === displaySlides.length - 1;
+  $('slide-count').textContent = `SLIDE ${String(index+1).padStart(2,'0')} / ${String(displaySlides.length).padStart(2,'0')}`;
   $('slide-title').textContent = slide.title;
   $('slide-target').textContent = `목표 시간 ${seconds(slide.target_duration_sec)}`;
-  $('slides').replaceChildren(...deck.slides.map((item, i) => {
+  $('slides').replaceChildren(...displaySlides.map((item, i) => {
     const button = node('button', undefined, `slide-button${index === i ? ' active' : ''}`);
     button.disabled = !running;
     if (index === i) button.setAttribute('aria-current','step');
@@ -236,12 +343,19 @@ function render(data) {
     const state = s ? s.states[point.keypoint_id] : {status:'unconfirmed',reason:'아직 확인되지 않았습니다.'};
     if (state.status === 'explained') explained++;
     const li = node('li');
+    if (script?.tracking && plan.units[script.tracking.index]?.keypoint_id === point.keypoint_id) li.className = 'current-sentence';
     li.append(node('span', state.status === 'explained' ? '✓' : state.status === 'uncertain' ? '?' : '·', 'point-icon ' + state.status));
     const text = node('div',point.text,'point-text');
     const planned = plan?.units.find(p => p.keypoint_id === point.keypoint_id);
     if (planned) text.append(node('small',`예정 ${seconds(planned.planned_start_sec)}–${seconds(planned.planned_end_sec)}`));
     text.append(node('small',`${point.required ? '필수' : '선택'} · ${state.reason}`));
     if (state.evidence_segment_ids?.length) text.append(node('small','근거: ' + state.evidence_segment_ids.join(', ')));
+    if (plan?.slides) {
+      const seek = node('button', '여기서 이어가기', 'secondary resync-button');
+      seek.disabled = !running;
+      seek.addEventListener('click', () => command('resync', {index:plan.units.findIndex(p => p.keypoint_id === point.keypoint_id)}));
+      text.append(seek);
+    }
     li.append(text,node('span',script?.missing_ids.includes(point.keypoint_id) ? '건너뜀 확인' : statuses[state.status],'point-state')); return li;
   }));
   $('point-count').textContent = `${explained} / ${slide.keypoints.length} 확인`;
@@ -251,7 +365,7 @@ function render(data) {
   $('coach-note').textContent = processing + (data.coach === 'phrase_baseline' ? '문장 매칭 모드 · 전사 오타나 다른 표현은 놓칠 수 있습니다.' : '의미 판단 모드 · 발화 근거로 확인합니다. 모델 처리에 몇 초 걸릴 수 있습니다.');
   const elapsed = s ? s.elapsed_sec : 0, remaining = s ? s.remaining_sec : deck.total_duration_sec;
   $('remaining').textContent = seconds(remaining); $('remaining').className = 'time' + (remaining < 0 ? ' over' : '');
-  $('elapsed').textContent = seconds(elapsed); $('slide-elapsed').textContent = seconds(s ? s.slide_elapsed_sec : 0);
+  $('elapsed').textContent = seconds(elapsed); $('slide-elapsed').textContent = seconds(script?.slide_timing?.elapsed_sec ?? (s ? s.slide_elapsed_sec : 0));
   $('progress').style.width = Math.min(100,elapsed / deck.total_duration_sec * 100) + '%';
   const alerts = s ? s.alerts : [], alertKey = JSON.stringify(alerts);
   if (alertKey !== lastAlerts) {
@@ -282,17 +396,21 @@ $('microphone-refresh').addEventListener('click',refreshMicrophones);
 $('microphone-test').addEventListener('click',() => {microphoneSelectionChanged = false; return command('microphone_test',{device_id:microphoneDeviceId()});});
 $('microphone-retry').addEventListener('click',() => command('microphone_retry',{device_id:microphoneDeviceId()}));
 $('stop').addEventListener('click',() => command('stop',{}));
-$('previous').addEventListener('click',() => command('navigate',{index:current.session.index-1}));
-$('next').addEventListener('click',() => command('navigate',{index:current.session.index+1}));
+$('previous').addEventListener('click',() => command('navigate',{index:(current.session.script_progress?.tracking?.slide_index ?? current.session.index)-1}));
+$('next').addEventListener('click',() => command('navigate',{index:(current.session.script_progress?.tracking?.slide_index ?? current.session.index)+1}));
 $('utterance-form').addEventListener('submit',async e => {e.preventDefault(); if (!$('utterance').value.trim()) return; if (await command('utterance',{text:$('utterance').value,endpoint_reason:$('endpoint').value})) $('utterance').value='';});
 $('upload').addEventListener('click',() => $('deck-file').click());
 $('deck-file').addEventListener('change',async e => {try {const file=e.target.files[0]; if(file) {if(file.size>1048576) throw new Error('자료 파일은 1MB 이하로 준비해 주세요.'); await command('deck',JSON.parse(await file.text()));}} catch(err) {error(err.message);} e.target.value='';});
 $('export').addEventListener('click',async () => {try {const data=await api('export'); const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));const a=node('a');a.href=url;a.download=`presentation_${data.session_id}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);} catch(e) {error(e.message);}});
-async function poll() {const revision = commandRevision; try {if(!busy || pendingCommand === 'start') {const data = await api('state'); if (revision === commandRevision && (!busy || pendingCommand === 'start')) render(data);}} catch(e) {$('connection').textContent='서버 연결 끊김';$('connection-dot').style.background='#c17960';} finally {setTimeout(poll,200);}}
+async function poll() {const revision = commandRevision; try {if(!busy || pendingCommand === 'start') {const data = await api('state'); if (revision === commandRevision && (!busy || pendingCommand === 'start')) render(data);}} catch(e) {$('connection').textContent='서버 연결 끊김';$('connection-dot').style.background='#c17960';renderLiveFeedback(current,true);} finally {setTimeout(poll,200);}}
 poll();
 refreshMicrophones();
 
-$('prepare-script').addEventListener('click',async () => {await command('script',{text:$('script-text').value,duration_sec:Number($('script-duration').value)});});
+$('prepare-script').addEventListener('click',async () => {
+  const custom = $('script-slide-durations').value.trim();
+  await command('script',{text:$('script-text').value,duration_sec:Number($('script-duration').value),
+    slide_durations_sec:custom ? custom.split(',').map(value => Number(value.trim())) : null});
+});
 $('voice-enabled').addEventListener('change',() => command('voice',{enabled:$('voice-enabled').checked,scope:$('voice-scope').value}));
 $('voice-scope').addEventListener('change',() => command('voice',{enabled:$('voice-enabled').checked,scope:$('voice-scope').value}));
 $('voice-test').addEventListener('click',() => command('voice_test',{}));

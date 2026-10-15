@@ -80,11 +80,13 @@ def main():
                               'guard_decisions': coach.last_metrics.get('guard_decisions', []),
                               'exact_match_fallbacks': coach.last_metrics.get('exact_match_fallbacks', []),
                               'passed': True})
-    deck = prepare_script('조금만 생각을 하면서 살면 훨씬 편할 거야.\n발표 시간을 관리합니다.', 60)
-    planned_end = deck['script_plan']['units'][0]['planned_end_sec']
+    deck = prepare_script('조금만 생각을 하면서 살면 훨씬 편할 거야.\n<<슬라이드 넘김>>\n발표 시간을 관리합니다.',
+                          60, slide_durations=[30, 30])
+    planned_end = 30
     cases = []
     native_popen = subprocess.Popen
-    for direction, speech_end in [('fast', 20), ('slow', 100), ('on_plan', planned_end)]:
+    for direction, boundary_time in [('fast', 20), ('slow', 50), ('on_plan', planned_end)]:
+        speech_end = boundary_time - 2
         destinations = []
 
         def file_only(argv, *positional, **kwargs):
@@ -108,16 +110,12 @@ def main():
                 app.command('utterance', {'text': transcript, 'start_sec': speech_end-3,
                                           'end_sec': speech_end})
                 wait_for(lambda: app.state()['session']['states']['script-1']['status'] == 'explained')
-                with app.lock:
-                    clock.value += 6
-                wait_for(lambda: app.state()['session']['script_progress']['pace'] == direction)
+                assert not destinations, 'Sentence confirmation must not trigger voice.'
+                app.command('navigate', {'index': 1})
+                record = app.state()['session']['script_progress']['slide_timing']['records'][0]
+                assert record['pace'] == direction
+                assert record['actual_duration_sec'] == boundary_time
                 if direction in ('fast', 'slow'):
-                    # Time-over screen alerts can reserve the shared five-second
-                    # alert cooldown. Let that window pass while evidence is
-                    # still fresh; a frozen test clock cannot expire it itself.
-                    if not destinations:
-                        with app.lock:
-                            clock.value += 6
                     wait_for(lambda: app.state()['voice_last_event'] is not None and
                              app.state()['voice_last_event']['type'] == 'voice_completed')
                     assert len(destinations) == 1
@@ -133,7 +131,7 @@ def main():
                     synthesized = None
                 progress = app.state()['session']['script_progress']
                 voice_events = [event for event in app.session.events if event['type'].startswith('voice_')]
-                cases.append({'direction': direction, 'speech_end_sec': speech_end,
+                cases.append({'direction': direction, 'speech_end_sec': speech_end, 'boundary_sec': boundary_time,
                               'planned_end_sec': planned_end, 'progress': progress,
                               'voice_events': voice_events, 'synthesized': synthesized,
                               'output_files': [str(path) for path in destinations], 'passed': True})
