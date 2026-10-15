@@ -1,18 +1,19 @@
 # 발표 중 기능 실행 안내
 
-최종 수정일: 2026-10-05
+최종 수정일: 2026-10-16
 
 최신 대본 기반 기능은 [대본 코칭 사용법](presentation_script_guide.md)을 참고한다. 기본 실행 자료는 대본 예제로 변경됐으며, 아래 기존 슬라이드 모드는 별도로 유지한다.
 
 ## 실행
 
-첫 실제 마이크 시험 이후, 맥에서 의미 판단을 확인할 때는 다음 명령을 사용한다. Ollama 서버와 설치된 모델이 필요하다.
+맥에서 의미 판단을 확인할 때는 다음 명령을 사용한다. Ollama 서버가 실행 중이어야 한다. 기본 모델은 Llama 3.1 8B이며 처음 한 번 설치한다.
 
 ```bash
-.venv/bin/python scripts/run_presentation.py --ollama-model qwen3:8b --coach-timeout 6
+ollama pull llama3.1:8b
+.venv/bin/python scripts/run_presentation.py --ollama-model llama3.1:8b --coach-timeout 6
 ```
 
-6초는 요청 제한이다. 현재 출력은 항목별 상태 `s`와 근거 번호 배열 `e`를 분리해 검증한다. 최신 8B 개발 평가 32개는 모두 통과했고 모델 요청 p95는 1.41초다. 실제 사람의 발화 종료부터 화면까지의 지연은 별도 측정이 필요하다. 아래 v7은 과거 결과이며, 최신 마이크 복구 검수는 [마이크 복구 보고서](../reports/presentation_microphone_recovery.md)를 참고한다.
+6초는 요청 제한이다. 현재 출력은 항목별 상태 `s`와 근거 번호 배열 `e`를 분리해 검증한다. 과거 Qwen3 8B의 개발 평가 32개 통과·요청 p95 1.41초는 Llama 모델의 측정값이 아니다. 실제 사람의 발화 종료부터 화면까지의 지연은 별도 측정이 필요하다. 아래 v7도 과거 결과이며, 이전 마이크 복구 검수는 [마이크 복구 보고서](../reports/presentation_microphone_recovery.md)를 참고한다.
 
 말을 끝내고 잠시 쉬면 분할 문장의 판단을 완료한다. 화면의 핵심 항목 아래에 문장 종료 대기/내용 판단 중 상태가 표시된다. 전사 오타를 문장 매칭 기준선이 놓칠 수 있으므로, 마이크 코칭 재시험에는 위 의미 모델 모드를 사용한다.
 
@@ -58,20 +59,20 @@
 ### 설치된 Ollama 모델 직접 연결
 
 ```bash
-.venv/bin/python scripts/run_presentation.py --ollama-model qwen3:8b --port 8766
+.venv/bin/python scripts/run_presentation.py --ollama-model llama3.1:8b --port 8766
 ```
 
 로컬 Ollama 서버가 실행 중이고 지정한 모델이 이미 설치돼 있어야 한다. 자동 다운로드나 클라우드 모델을 사용하지 않는다. 실행 시 더미 발화로 모델을 먼저 준비하고 준비 시간을 별도로 표시한다. 이 시간은 발표 타이머에 포함하지 않는다.
 
 의미 판단 결과는 기존 상태·발화 근거 계약으로 변환한다. 모델 내부에서는 출력 토큰을 줄이기 위해 상태 코드와 발화 번호를 사용하고, 항목 ID도 짧은 번호로 바꾸고 프로그램이 원래 항목·구간 ID로 복원·검증한다. 의미 모델 입력에는 핵심 문장만 보내며 허용 표현 목록은 기본 문장 매칭에서 사용한다. 표시되는 판단 사유는 상태별 일반 설명이며 모델이 생성한 구체적인 사실 인용문이 아니다.
 
-발표 서버의 모델 요청 제한 시간 기본값은 6초다. 복잡하거나 긴 슬라이드에서 제한 시간을 늘리려면 `--coach-timeout 10`처럼 지정할 수 있지만, 최대 피드백 대기 시간도 늘어난다. 현재 8B 모델의 개발 평가 요청 p95는 1.41초이며, 마이크·STT·LLM 동시 부하에서 긴 발표의 지연은 아직 검증하지 않았다. 타임아웃·잘못된 응답·4096토큰 컨텍스트 한도 감지는 판단불가와 품질 문제로 기록한다.
+발표 서버의 모델 요청 제한 시간 기본값은 6초다. 복잡하거나 긴 슬라이드에서 제한 시간을 늘리려면 `--coach-timeout 10`처럼 지정할 수 있지만, 최대 피드백 대기 시간도 늘어난다. 과거 Qwen3 8B 개발 평가의 요청 p95 1.41초는 현재 Llama 모델이나 문장 추적 모드의 성능을 뜻하지 않는다. 마이크·STT·LLM 동시 부하에서 긴 발표의 지연은 별도로 확인해야 한다. 타임아웃·잘못된 응답·4096토큰 컨텍스트 한도 감지는 판단불가와 품질 문제로 기록한다.
 
 ### 정답 전사로 코칭 품질 평가
 
 ```bash
 .venv/bin/python scripts/evaluate_coaching.py
-.venv/bin/python scripts/evaluate_coaching.py --ollama-model qwen3:8b --timeout 60 --warm-up
+.venv/bin/python scripts/evaluate_coaching.py --ollama-model llama3.1:8b --timeout 60 --warm-up
 ```
 
 첫 명령은 기본 문장 매칭, 두 번째는 로컬 의미 모델 평가다. 60초는 정확도 측정용 요청 제한이며 발표 서버 기본값 6초와 다르다. 평가의 지연 판정 예산은 여전히 2초다. `--warm-up`의 더미 호출은 별도 기록하고 사례별 지연에서 제외한다.

@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from src.presentation import LocalHttpCoach
-from src.ollama_coach import OllamaCoach
+from src.ollama_coach import DEFAULT_OLLAMA_MODEL, OllamaCoach
 from src.presentation_server import PresentationApp, make_server
 
 
@@ -17,18 +17,18 @@ def main():
     parser.add_argument("--deck", type=Path, default=Path(__file__).resolve().parent.parent / "examples/presentation_slides_deck.json")
     provider = parser.add_mutually_exclusive_group()
     provider.add_argument("--coach-url", help="선택적 로컬 모델 어댑터 HTTP 주소")
-    provider.add_argument("--ollama-model", help="이미 설치된 Ollama 로컬 모델 이름")
+    provider.add_argument("--ollama-model", help=f"이미 설치된 Ollama 로컬 모델 이름 (기본: {DEFAULT_OLLAMA_MODEL})")
     provider.add_argument("--phrase-coach", action="store_true", help="의미 모델 없이 등록 표현 매칭만 시험")
     parser.add_argument("--ollama-url", default="http://127.0.0.1:11434")
     parser.add_argument("--coach-timeout", type=float, default=6.0)
     parser.add_argument("--output-dir", default="logs/presentation_sessions")
     args = parser.parse_args()
-    model = args.ollama_model or ("qwen3:8b" if not args.coach_url and not args.phrase_coach else None)
+    model = args.ollama_model or (DEFAULT_OLLAMA_MODEL if not args.coach_url and not args.phrase_coach else None)
     coach = (OllamaCoach(model, args.ollama_url, args.coach_timeout) if model
              else LocalHttpCoach(args.coach_url, args.coach_timeout) if args.coach_url else None)
     if isinstance(coach, OllamaCoach):
         coach.verify_model()
-        print("로컬 코칭 모델을 준비합니다. 준비 시간은 발표 타이머에 포함되지 않습니다.", flush=True)
+        print(f"로컬 코칭 모델 {coach.model}을 준비합니다. 준비 시간은 발표 타이머에 포함되지 않습니다.", flush=True)
         coach.warm_up()
         print(f"코칭 모델 준비 완료: {coach.warm_up_metrics['wall_ms'] / 1000:.2f}초 (별도 더미 추론 포함)", flush=True)
     app = PresentationApp(json.loads(args.deck.read_text(encoding="utf-8")),

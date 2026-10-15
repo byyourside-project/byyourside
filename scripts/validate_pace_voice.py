@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import numpy as np
 from scipy.io import wavfile
 from src.config import PipelineConfig
-from src.ollama_coach import OllamaCoach
+from src.ollama_coach import DEFAULT_OLLAMA_MODEL, OllamaCoach
 from src.pipeline import SpeechPipeline
 from src.presentation_server import PresentationApp
 from src.script_coaching import ScriptSession, prepare_script
@@ -43,7 +43,7 @@ class Clock:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--model', default='qwen3:8b')
+    parser.add_argument('--model', default=DEFAULT_OLLAMA_MODEL)
     parser.add_argument('--output-dir', type=Path, default=Path('logs/pace_voice_validation'))
     args = parser.parse_args()
     folder = args.output_dir / uuid.uuid4().hex[:12]

@@ -14,7 +14,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from src.ollama_coach import OllamaCoach
+from src.ollama_coach import DEFAULT_OLLAMA_MODEL, OllamaCoach
 from src.presentation_server import PresentationApp
 
 
@@ -42,7 +42,7 @@ def first_confirmations(events):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--record', type=Path, required=True)
-    parser.add_argument('--model', default='qwen3:8b')
+    parser.add_argument('--model', default=DEFAULT_OLLAMA_MODEL)
     parser.add_argument('--output-dir', type=Path, default=Path('logs/live_coaching_latency'))
     args = parser.parse_args()
     source = json.loads(args.record.read_text())

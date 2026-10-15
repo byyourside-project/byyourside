@@ -1,0 +1,286 @@
+{
+  "timestamp_utc": "2026-10-15T15:09:12.017718+00:00",
+  "scope": "Installed local Llama 3.1; developer text cases, bundled WAV STT, controlled slide timing and file-only speech synthesis. Not an independent accuracy benchmark or human microphone latency test.",
+  "model": {
+    "name": "llama3.1:8b",
+    "digest": "46e0c10c039e019119339687c3c1757cc81b9da49709a3b3924863ba87ca666e",
+    "size": 4920753328,
+    "details": {
+      "parent_model": "",
+      "format": "gguf",
+      "family": "llama",
+      "families": [
+        "llama"
+      ],
+      "parameter_size": "8.0B",
+      "quantization_level": "Q4_K_M",
+      "context_length": 131072,
+      "embedding_length": 4096
+    }
+  },
+  "prompt_version": "semantic_v18_llama31_fewshot_position_and_facts",
+  "parameters": {
+    "context_tokens": 4096,
+    "temperature": 0,
+    "think": false,
+    "request_timeout_sec": 6
+  },
+  "source_sha256": {
+    "src/ollama_coach.py": "7caa45e97a4f83f5c61220666a4e3d7ca7f10cbe3ccfb171d367020be3caa95e",
+    "src/llama_prompts.py": "32085a8056273e9ae8c3a5d709f6878cfc323963d07e2d101628309f089c783b",
+    "scripts/run_presentation.py": "14ea3ec61ba0f8c3cc5e980ddbbd4e499c76e8c3f32ebda9c1af4ff62a18a8af",
+    "scripts/validate_script_tracking.py": "78038fdb28995259b9e38d5efab5aa91d1e3068e6b0aa8735140d6e3bb1d8b69",
+    "scripts/validate_pace_voice.py": "27ee8fbb90cb3e018e8a49740c2e3bd4c1191a6d989e6a6a0f508da719bef1ec",
+    "scripts/validate_live_coaching_latency.py": "04828c128a16618b155810139cd3557877ffb8c20a386e3571038842a1b0eea5",
+    "tests/test_ollama_coach.py": "822899dd1a15df73aa32dd29013ac0e83d460e9e16717fb830578d7ad7d58117"
+  },
+  "regression": {
+    "passed": 102,
+    "seconds": 7.493,
+    "command": ".venv/bin/python -m unittest tests.test_ollama_coach tests.test_script_tracking tests.test_inflight_judgments tests.test_script_coaching tests.test_coach_streaming"
+  },
+  "tracking": {
+    "passed": 6,
+    "total": 6,
+    "mean_wall_ms": 3743.6333331861533,
+    "min_wall_ms": 3522.714041057043,
+    "max_wall_ms": 3801.9726669881493,
+    "latency_scope": "Model request wall time after separate warm-up, excluding microphone/STT/queue/UI",
+    "cases": [
+      {
+        "case": "first",
+        "input": "발표자의 시간과 핵심 내용 설명을 돕습니다.",
+        "expected_id": "script-1",
+        "expected_phase": "complete",
+        "passed": true,
+        "position": {
+          "keypoint_id": "script-1",
+          "phase": "complete",
+          "evidence_segment_ids": [
+            "first"
+          ]
+        },
+        "metrics": {
+          "wall_ms": 3787.1336250100285,
+          "requested_keypoint_ids": [
+            "script-1",
+            "script-2",
+            "script-3",
+            "script-4"
+          ],
+          "requested_keypoint_count": 4,
+          "input_keypoint_count": 4,
+          "total_duration": 3777790750,
+          "load_duration": 920625,
+          "prompt_eval_count": 1366,
+          "prompt_eval_duration": 187054000,
+          "eval_count": 85,
+          "eval_duration": 3569981000
+        }
+      },
+      {
+        "case": "skip",
+        "input": "발화를 최대 4초 구간으로 분할합니다.",
+        "expected_id": "script-3",
+        "expected_phase": "complete",
+        "passed": true,
+        "position": {
+          "keypoint_id": "script-3",
+          "phase": "complete",
+          "evidence_segment_ids": [
+            "skip"
+          ]
+        },
+        "metrics": {
+          "wall_ms": 3792.5084580201656,
+          "requested_keypoint_ids": [
+            "script-1",
+            "script-2",
+            "script-3",
+            "script-4"
+          ],
+          "requested_keypoint_count": 4,
+          "input_keypoint_count": 4,
+          "total_duration": 3782515500,
+          "load_duration": 915084,
+          "prompt_eval_count": 1364,
+          "prompt_eval_duration": 191633000,
+          "eval_count": 86,
+          "eval_duration": 3581061000,
+          "guard_decisions": [
+            {
+              "keypoint_id": "script-1",
+              "reason_code": "unrelated_evidence"
+            }
+          ]
+        }
+      },
+      {
+        "case": "number_error",
+        "input": "발화를 최대 3초 구간으로 분할합니다.",
+        "expected_id": "script-3",
+        "expected_phase": "complete",
+        "passed": true,
+        "position": {
+          "keypoint_id": "script-3",
+          "phase": "complete",
+          "evidence_segment_ids": [
+            "number_error"
+          ]
+        },
+        "metrics": {
+          "wall_ms": 3774.944167002104,
+          "requested_keypoint_ids": [
+            "script-1",
+            "script-2",
+            "script-3",
+            "script-4"
+          ],
+          "requested_keypoint_count": 4,
+          "input_keypoint_count": 4,
+          "total_duration": 3766039333,
+          "load_duration": 897791,
+          "prompt_eval_count": 1364,
+          "prompt_eval_duration": 180503000,
+          "eval_count": 86,
+          "eval_duration": 3580895000
+        }
+      },
+      {
+        "case": "partial",
+        "input": "음성 인식은 로컬에서",
+        "expected_id": "script-2",
+        "expected_phase": "partial",
+        "passed": true,
+        "position": {
+          "keypoint_id": "script-2",
+          "phase": "partial",
+          "evidence_segment_ids": [
+            "partial"
+          ]
+        },
+        "metrics": {
+          "wall_ms": 3782.5270410394296,
+          "requested_keypoint_ids": [
+            "script-1",
+            "script-2",
+            "script-3",
+            "script-4"
+          ],
+          "requested_keypoint_count": 4,
+          "input_keypoint_count": 4,
+          "total_duration": 3771977959,
+          "load_duration": 1045625,
+          "prompt_eval_count": 1355,
+          "prompt_eval_duration": 181528000,
+          "eval_count": 86,
+          "eval_duration": 3586288000,
+          "guard_decisions": [
+            {
+              "keypoint_id": "script-1",
+              "reason_code": "incomplete_tail"
+            },
+            {
+              "keypoint_id": "script-2",
+              "reason_code": "incomplete_tail"
+            }
+          ]
+        }
+      },
+      {
+        "case": "unrelated",
+        "input": "점심으로 무엇을 먹을까요?",
+        "expected_id": null,
+        "expected_phase": null,
+        "passed": true,
+        "position": {
+          "keypoint_id": null,
+          "phase": "none",
+          "evidence_segment_ids": []
+        },
+        "metrics": {
+          "wall_ms": 3522.714041057043,
+          "requested_keypoint_ids": [
+            "script-1",
+            "script-2",
+            "script-3",
+            "script-4"
+          ],
+          "requested_keypoint_count": 4,
+          "input_keypoint_count": 4,
+          "total_duration": 3512063542,
+          "load_duration": 779834,
+          "prompt_eval_count": 1356,
+          "prompt_eval_duration": 178797000,
+          "eval_count": 80,
+          "eval_duration": 3329588000
+        }
+      },
+      {
+        "case": "slide_transition",
+        "input": "불확실한 내용은 판단을 보류합니다.",
+        "expected_id": "script-4",
+        "expected_phase": "complete",
+        "passed": true,
+        "position": {
+          "keypoint_id": "script-4",
+          "phase": "complete",
+          "evidence_segment_ids": [
+            "slide_transition"
+          ]
+        },
+        "metrics": {
+          "wall_ms": 3801.9726669881493,
+          "requested_keypoint_ids": [
+            "script-1",
+            "script-2",
+            "script-3",
+            "script-4"
+          ],
+          "requested_keypoint_count": 4,
+          "input_keypoint_count": 4,
+          "total_duration": 3790411708,
+          "load_duration": 743917,
+          "prompt_eval_count": 1364,
+          "prompt_eval_duration": 186381000,
+          "eval_count": 86,
+          "eval_duration": 3600526000,
+          "guard_decisions": [
+            {
+              "keypoint_id": "script-1",
+              "reason_code": "unrelated_evidence"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "wav_integration": {
+    "stt_transcript": "조 금만 생각 을 하 면서 살 면 훨씬 편할 거야.",
+    "stt_segments": 1,
+    "sequential_exact_reading_passed": true,
+    "sequential_exact_reading_total": 3,
+    "slide_timing_cases": [
+      "fast",
+      "slow",
+      "on_plan"
+    ],
+    "passed": true,
+    "speaker_playback": false,
+    "physical_microphone": false
+  },
+  "http_smoke": {
+    "url": "http://127.0.0.1:8771",
+    "routes": {
+      "/": 200,
+      "/api/state": 200
+    },
+    "model_from_startup_log": "llama3.1:8b",
+    "existing_script_preserved": true
+  },
+  "limitations": [
+    "The unchanged v17 prompt passed only 2/6 tracking cases on Llama; the final Llama-specific prompt uses fixed shop examples outside the validation script.",
+    "These cases were used during prompt development and are not held-out accuracy measurements.",
+    "No claim of a latency improvement over Qwen or long-running live microphone accuracy."
+  ]
+}

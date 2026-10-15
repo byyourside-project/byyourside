@@ -67,6 +67,29 @@ class OllamaTests(unittest.TestCase):
         self.assertEqual(result["evidence_segment_ids"], ["s1"])
         self.assertTrue(self.coach.last_metrics["guard_decisions"])
 
+    def test_llama_tracking_examples_do_not_become_live_candidates_or_evidence(self):
+        self.coach.model = "llama3.1:8b"
+        self.coach = OllamaCoach(self.coach.model, self.coach.base_url)
+        self.models = [{"name": self.coach.model, "size": 100, "digest": "fixture"}]
+        self.job["slide"]["keypoints"].append({"keypoint_id": "live-next", "text": "발표 시간을 관리합니다."})
+        self.job["segments"].append({"segment_id": "live-speech", "text": "발표 시간을 관리합니다."})
+        self.job.update(script_position_ids=["live-next"], script_cursor_id="live-next")
+        self.response["message"]["content"] = json.dumps({
+            "P1": {"s": -1, "e": []}, "P2": {"s": 1, "e": [2]},
+            "position": {"id": "P2", "phase": "complete", "e": [2]}})
+
+        result = self.coach.evaluate(self.job)
+
+        self.assertEqual(result["position"], {"keypoint_id": "live-next", "phase": "complete",
+                                               "evidence_segment_ids": ["live-speech"]})
+        request = self.requests[-1]
+        live_input = json.loads(request["messages"][-1]["content"])
+        self.assertEqual(live_input["position_candidates"], ["P2"])
+        self.assertEqual(live_input["utterances"][-1], {"number": 2, "text": "발표 시간을 관리합니다."})
+        self.assertEqual(request["format"]["properties"]["position"]["properties"]["id"]["enum"], [None, "P2"])
+        self.assertEqual(request["format"]["properties"]["P2"]["properties"]["e"]["items"]["enum"], [1, 2])
+        self.assertGreater(len(request["messages"]), 2)
+
     def test_unfinished_positive_model_answer_waits_for_continuation(self):
         self.job["segments"][0].update(text="음성을 외부로 보내지 않고", start_sec=0, end_sec=1)
         result = self.coach.evaluate(self.job)["judgments"][0]

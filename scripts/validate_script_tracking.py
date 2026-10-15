@@ -6,13 +6,13 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from src.ollama_coach import OllamaCoach
+from src.ollama_coach import DEFAULT_OLLAMA_MODEL, OllamaCoach
 from src.script_coaching import ScriptSession, prepare_script
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model', default='qwen3:8b')
+    parser.add_argument('--model', default=DEFAULT_OLLAMA_MODEL)
     parser.add_argument('--output', default='logs/script_tracking_validation.json')
     args = parser.parse_args()
     coach = OllamaCoach(args.model, timeout=6)

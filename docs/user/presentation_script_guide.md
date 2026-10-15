@@ -1,14 +1,19 @@
 # 대본·슬라이드 기반 발표 코칭 사용법
 
-업데이트: 2026-10-15
+업데이트: 2026-10-16
 
 ## 실행과 준비
 
-설치된 로컬 Ollama 모델로 실행한다. STT → 로컬 LLM 흐름을 유지하며 모델을 자동으로 다운로드하지 않는다.
+기본 모델은 **Llama 3.1 8B (`llama3.1:8b`)**다. STT → 로컬 LLM 흐름을 유지한다. Ollama 서버가 실행 중이어야 하며, 모델은 처음 한 번 별도로 설치한다. 발표 서버가 모델을 자동으로 다운로드하지는 않는다.
 
 ```bash
-.venv/bin/python scripts/run_presentation.py --ollama-model qwen3:8b --coach-timeout 6
+ollama pull llama3.1:8b
+.venv/bin/python scripts/run_presentation.py --coach-timeout 6
 ```
+
+`--ollama-model llama3.1:8b`로 명시할 수도 있다. 기존 모델을 비교하려면 설치된 `qwen3:8b`를 `--ollama-model`로 지정한다. 검증 스크립트도 기본적으로 Llama 3.1을 사용하며 `--model qwen3:8b`로 바꿀 수 있다. 실행 로그와 발표 기록의 모델 정보로 실제 사용 모델을 확인한다. 모델 파일은 Ollama의 로컬 저장소에 설치되며 Git 저장소에는 포함하지 않는다.
+
+Llama의 대본 추적에는 전용 지시문과 고정 예시를 적용한다. 개발용 문장 추적 6개 사례에서 평균 모델 요청 시간은 3.74초였으며, 마이크부터 화면까지의 전체 지연이나 정확도 향상을 보장하지 않는다. 자세한 범위는 [Llama 적용·검증 기록](../reports/presentation_llama31.md)을 참고한다.
 
 기본 주소는 `http://127.0.0.1:8765`다. 새 기본 예제는 `examples/presentation_slides_script.txt`와 `examples/presentation_slides_deck.json`이다. 기존 단일 대본 예제와 일반 슬라이드 JSON도 계속 사용할 수 있다.
 
