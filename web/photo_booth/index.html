@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#171321">
+  <title>별빛 찰칵 · 무인 포토존</title>
+  <link rel="stylesheet" href="./style.css">
+  <script src="./app.js" defer></script>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <a class="brand" href="./" aria-label="별빛 찰칵 홈"><span class="brand-mark">✦</span><span>별빛 찰칵 <small>VOICE PHOTO ZONE</small></span></a>
+      <div class="top-right"><span class="prototype">PC 시연 버전</span><button id="fullscreen" type="button" class="fullscreen-button">전체 화면</button><span id="clock" class="clock" aria-label="현재 시간"></span></div>
+    </header>
+
+    <section class="intro" aria-labelledby="page-title">
+      <div><p class="eyebrow">STARRY NIGHT PHOTO ZONE</p><h1 id="page-title">오늘의 순간을 <em>별빛처럼.</em></h1><p class="intro-copy">촬영 자리에 선 채로 배치·프레임·타이머를 고르고 “사진 찍어줘”라고 말해요.</p></div>
+      <div id="camera-indicator" class="camera-indicator"><span class="dot"></span><span>카메라 준비 중</span></div>
+    </section>
+
+    <section class="studio" aria-label="포토존 촬영 화면">
+      <div class="stage">
+        <div class="stage-top"><span class="live-pill"><span class="live-dot"></span> PHOTO ZONE</span><span id="stage-hint">카메라 접근을 허용해 주세요</span></div>
+        <div id="media-area" class="media-area">
+          <video id="preview" autoplay muted playsinline aria-label="카메라 미리보기"></video>
+          <div id="preview-decor" class="preview-decor frame-plain" aria-hidden="true"></div>
+          <div id="four-live" class="four-live" hidden aria-label="네 컷 촬영 미리보기"><div id="four-strip" class="photo-strip frame-plain"></div></div>
+          <div id="result" class="result" hidden aria-label="촬영 결과"></div>
+          <div id="empty-state" class="empty-state"><div class="camera-icon" aria-hidden="true">◉</div><strong>카메라를 기다리고 있어요</strong><span>허용을 누르면 미리보기가 시작됩니다.</span><button id="retry-camera" type="button" class="retry-button">카메라 다시 연결</button></div>
+          <div id="countdown" class="countdown" hidden aria-live="assertive"></div>
+          <div class="viewfinder top-left"></div><div class="viewfinder top-right"></div><div class="viewfinder bottom-left"></div><div class="viewfinder bottom-right"></div>
+        </div>
+        <div class="stage-bottom"><span id="stage-status">촬영을 준비하고 있어요</span><span id="shot-progress">01 / 04</span></div>
+      </div>
+
+      <aside class="control-panel" aria-label="촬영 설정">
+        <div class="panel-heading"><div><p class="eyebrow">YOUR SESSION</p><h2>촬영 설정</h2></div><span id="setting-count" class="panel-number">01 — 03</span></div>
+        <div class="setting-group"><div class="setting-title"><span class="setting-index">01</span><h3>사진 배치</h3><span id="layout-value" class="setting-value">한 장</span></div><div class="choices" role="group" aria-label="사진 배치"><button type="button" data-setting="layout" data-value="single" class="choice active" aria-pressed="true"><span class="layout-icon one"></span>한 장</button><button type="button" data-setting="layout" data-value="four_cut" class="choice" aria-pressed="false"><span class="layout-icon four"></span>네 컷</button></div></div>
+        <div class="setting-group"><div class="setting-title"><span class="setting-index">02</span><h3>사진 프레임</h3><span id="frame-value" class="setting-value">기본</span></div><div class="choices frame-choices" role="group" aria-label="사진 프레임"><button type="button" data-setting="frame" data-value="plain" class="choice active" aria-pressed="true">기본</button><button type="button" data-setting="frame" data-value="starlight" class="choice" aria-pressed="false">✦ 별빛</button><button type="button" data-setting="frame" data-value="party" class="choice" aria-pressed="false">🎉 파티</button><button type="button" data-setting="frame" data-value="buddy" class="choice" aria-pressed="false">🐻 별곰이</button></div></div>
+        <div class="setting-group"><div class="setting-title"><span class="setting-index">03</span><h3>타이머</h3><span id="timer-value" class="setting-value">10초</span></div><div class="choices four-options" role="group" aria-label="타이머"><button type="button" data-setting="timer" data-value="3" class="choice" aria-pressed="false">3초</button><button type="button" data-setting="timer" data-value="10" class="choice active" aria-pressed="true">10초</button><button type="button" data-setting="timer" data-value="15" class="choice" aria-pressed="false">15초</button><button type="button" data-setting="timer" data-value="20" class="choice" aria-pressed="false">20초</button></div></div>
+        <div id="shooting-view-group" class="setting-group" hidden><div class="setting-title"><span class="setting-index">04</span><h3>네 컷 촬영 방법</h3><span id="shooting-view-value" class="setting-value">네 칸에서</span></div><div class="choices" role="group" aria-label="네 컷 촬영 방법"><button type="button" data-setting="shootingView" data-value="strip" class="choice active" aria-pressed="true">네 칸에서 찍기</button><button type="button" data-setting="shootingView" data-value="full" class="choice" aria-pressed="false">한 컷씩 크게 찍기</button></div><p class="setting-help">두 방법 모두 촬영이 끝나면 네 컷 사진으로 완성됩니다.</p></div>
+        <div class="setting-group view-controls"><div class="setting-title"><span class="setting-index">✦</span><h3>화면 구도 <small>(카메라는 고정)</small></h3><span id="zoom-value" class="setting-value">1.00배</span></div><div class="view-control-row"><button type="button" data-view-action="zoomOut" class="choice">축소 <small>(멀리)</small></button><button type="button" data-view-action="zoomIn" class="choice">확대 <small>(가까이)</small></button><button type="button" data-view-action="reset" class="choice view-reset">초기화</button></div><div class="direction-grid" role="group" aria-label="확대 화면 위치"><button type="button" data-view-action="up" class="choice">위 <small>(구도 이동)</small></button><button type="button" data-view-action="left" class="choice">왼쪽</button><button type="button" data-view-action="down" class="choice">아래</button><button type="button" data-view-action="right" class="choice">오른쪽</button></div><p class="setting-help">확대한 화면의 보이는 위치를 옮겨요.</p></div>
+        <button id="capture" type="button" class="capture-button"><span class="shutter-icon" aria-hidden="true"></span><span>사진 촬영하기</span><span aria-hidden="true">↗</span></button>
+        <p class="panel-note">촬영 후 사진은 화면에만 표시됩니다.</p>
+      </aside>
+    </section>
+
+    <section class="voice-bar" aria-label="음성 명령 시연"><div class="voice-heading"><span class="voice-symbol" aria-hidden="true">⌁</span><div><strong>음성으로도 조작해 보세요</strong><p id="voice-status" role="status" aria-live="polite">마이크를 누르거나 아래에 문장을 입력해 보세요.</p></div></div><div class="voice-actions"><form id="command-form"><label class="sr-only" for="command">명령 입력</label><input id="command" autocomplete="off" placeholder="예: 타이머를 십 초로 설정해 줘"><button type="submit">적용</button></form><button id="listen" type="button" class="mic-button"><span aria-hidden="true">●</span> 말하기</button></div></section>
+    <footer><span>추천 명령: “화면 확대해 줘” · “왼쪽으로 옮겨 줘” · “구도 초기화해 줘” · “사진 찍어줘”</span><span>마음AI 모델 연결 전 · 규칙 기반 시연</span></footer>
+  </main>
+</body>
+</html>

@@ -1,6 +1,6 @@
 # 다른 컴퓨터에서 사진관 음성 명령 학습 이어하기
 
-2026-10-17 기준. 이 파일과 함께 전달하는 `photo_booth_training_handoff.zip`은 채팅 기록 없이 작업을 이어가기 위한 묶음이다.
+2026-10-18 기준. GitHub의 `codex/photo-booth-training-handoff` 브랜치에는 기존 프로젝트와 사진관 시연 앱, 학습 데이터 및 코드가 함께 있다. 채팅 기록 없이 이 브랜치에서 작업을 이어갈 수 있다.
 
 ## 현재 상태
 
@@ -13,7 +13,7 @@
 ## 새 컴퓨터에서 먼저 확인할 것
 
 1. 운영체제, GPU 이름과 GPU 메모리(VRAM), 시스템 RAM, 빈 저장 공간을 확인한다. 권장 여유는 전용 GPU VRAM 12~16GB 이상, RAM 16GB 이상, 빈 저장 공간 20GB 이상이다. 이는 현재 코드의 보수적 추정치이며 최소 사양은 아니다.
-2. 이 묶음의 파일을 원하는 작업 폴더에 푼다. 모델 본체와 계정 토큰은 포함하지 않았다.
+2. `codex/photo-booth-training-handoff` 브랜치를 내려받는다. 모델 본체와 계정 토큰은 포함하지 않았다. 사진관 시연 앱은 `web/photo_booth/`와 `scripts/run_photo_booth.py`에 있고, 학습된 모델을 연결한 버전은 아직 아니다.
 3. Hugging Face 계정에서 Meta Llama 3.2 접근이 승인된 상태인지 확인한다. 토큰은 새 컴퓨터에서 직접 로그인하며 채팅, 문서, 코드에 기록하지 않는다.
 4. 새 컴퓨터의 Python 및 GPU용 PyTorch가 정상 설치되는지 확인한다. `requirements-photo-train.txt`의 PyTorch 버전은 기존 Mac 시험 버전이다. CUDA 컴퓨터에서는 공식 PyTorch 설치 안내에 맞는 GPU 빌드를 먼저 설치하고, 나머지 패키지 버전을 맞춘다.
 
@@ -40,4 +40,4 @@ python scripts/evaluate_photo_local.py --model meta-llama/Llama-3.2-1B-Instruct 
 
 ## 새 채팅에 전달할 설명
 
-> 사진관 음성 명령 프로젝트를 이어서 도와줘. 첨부한 `photo_booth_training_handoff.zip`을 풀고 `docs/photo_booth/GPU_PC_HANDOFF.md`와 `docs/photo_booth/local_training.md`를 먼저 읽어줘. Llama 3.2 1B Instruct에 `<maum_0>`~`<maum_6>`, `<maum_end>` 토큰을 추가해 1,280개 학습 데이터로 LoRA를 학습할 계획이야. 우선 이 컴퓨터의 GPU와 메모리, 디스크 공간을 확인하고 4단계 시험과 평가를 실행해줘. 성공하면 중간 저장·재개를 준비한 다음 검수된 데이터로 전체 1회 학습을 진행하고 결과를 기록해줘. 인증 토큰은 채팅에 출력하지 마.
+> 사진관 음성 명령 프로젝트를 이어서 도와줘. `https://github.com/byyourside-project/byyourside`의 `codex/photo-booth-training-handoff` 브랜치를 내려받고 `docs/photo_booth/GPU_PC_HANDOFF.md`와 `docs/photo_booth/local_training.md`를 먼저 읽어줘. 사진관 앱은 `web/photo_booth/`와 `scripts/run_photo_booth.py`에 있어. 아직 규칙 기반 시연이며 학습 모델은 연결되지 않았다. Llama 3.2 1B Instruct에 `<maum_0>`~`<maum_6>`, `<maum_end>` 토큰을 추가해 1,280개 학습 데이터로 LoRA를 학습할 계획이야. 우선 이 컴퓨터의 GPU와 메모리, 디스크 공간을 확인하고 4단계 시험과 평가를 실행해줘. 성공하면 중간 저장·재개를 준비한 다음 검수된 데이터로 전체 1회 학습을 진행하고 결과를 기록해줘. 인증 토큰은 채팅에 출력하지 마.
