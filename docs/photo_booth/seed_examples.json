@@ -1,0 +1,614 @@
+[
+  {
+    "id": "T001",
+    "split": "train",
+    "utterance": "한 장 배치로 바꿔줘",
+    "action": "select_layout",
+    "args": {
+      "layout": "single"
+    }
+  },
+  {
+    "id": "T002",
+    "split": "train",
+    "utterance": "한 컷 배치로 설정해 줘",
+    "action": "select_layout",
+    "args": {
+      "layout": "single"
+    }
+  },
+  {
+    "id": "T003",
+    "split": "train",
+    "utterance": "사진 배치를 한 장으로 해 줘",
+    "action": "select_layout",
+    "args": {
+      "layout": "single"
+    }
+  },
+  {
+    "id": "T004",
+    "split": "train",
+    "utterance": "한 장짜리 화면으로 바꿔 줘",
+    "action": "select_layout",
+    "args": {
+      "layout": "single"
+    }
+  },
+  {
+    "id": "T005",
+    "split": "train",
+    "utterance": "네 컷 배치로 바꿔줘",
+    "action": "select_layout",
+    "args": {
+      "layout": "four_cut"
+    }
+  },
+  {
+    "id": "T006",
+    "split": "train",
+    "utterance": "사진 배치를 네 칸으로 해 줘",
+    "action": "select_layout",
+    "args": {
+      "layout": "four_cut"
+    }
+  },
+  {
+    "id": "T007",
+    "split": "train",
+    "utterance": "네 장이 나오게 배치해 줘",
+    "action": "select_layout",
+    "args": {
+      "layout": "four_cut"
+    }
+  },
+  {
+    "id": "T008",
+    "split": "train",
+    "utterance": "화면을 네 컷 배치로 설정해 줘",
+    "action": "select_layout",
+    "args": {
+      "layout": "four_cut"
+    }
+  },
+  {
+    "id": "T009",
+    "split": "train",
+    "utterance": "기본 프레임으로 바꿔줘",
+    "action": "set_frame",
+    "args": {
+      "frame": "plain"
+    }
+  },
+  {
+    "id": "T010",
+    "split": "train",
+    "utterance": "테두리 장식을 없애 줘",
+    "action": "set_frame",
+    "args": {
+      "frame": "plain"
+    }
+  },
+  {
+    "id": "T011",
+    "split": "train",
+    "utterance": "꾸밈 없는 기본 프레임으로 설정해 줘",
+    "action": "set_frame",
+    "args": {
+      "frame": "plain"
+    }
+  },
+  {
+    "id": "T012",
+    "split": "train",
+    "utterance": "별빛 프레임으로 바꿔줘",
+    "action": "set_frame",
+    "args": {
+      "frame": "starlight"
+    }
+  },
+  {
+    "id": "T013",
+    "split": "train",
+    "utterance": "별 테두리를 적용해 줘",
+    "action": "set_frame",
+    "args": {
+      "frame": "starlight"
+    }
+  },
+  {
+    "id": "T014",
+    "split": "train",
+    "utterance": "사진에 별 장식을 넣어 줘",
+    "action": "set_frame",
+    "args": {
+      "frame": "starlight"
+    }
+  },
+  {
+    "id": "T015",
+    "split": "train",
+    "utterance": "파티 프레임으로 바꿔줘",
+    "action": "set_frame",
+    "args": {
+      "frame": "party"
+    }
+  },
+  {
+    "id": "T016",
+    "split": "train",
+    "utterance": "축하 테두리를 적용해 줘",
+    "action": "set_frame",
+    "args": {
+      "frame": "party"
+    }
+  },
+  {
+    "id": "T017",
+    "split": "train",
+    "utterance": "사진에 파티 장식을 넣어 줘",
+    "action": "set_frame",
+    "args": {
+      "frame": "party"
+    }
+  },
+  {
+    "id": "T018",
+    "split": "train",
+    "utterance": "별곰이 프레임으로 바꿔줘",
+    "action": "set_frame",
+    "args": {
+      "frame": "buddy"
+    }
+  },
+  {
+    "id": "T019",
+    "split": "train",
+    "utterance": "사진 옆에 별곰이를 띄워 줘",
+    "action": "set_frame",
+    "args": {
+      "frame": "buddy"
+    }
+  },
+  {
+    "id": "T020",
+    "split": "train",
+    "utterance": "곰돌이 장식으로 설정해 줘",
+    "action": "set_frame",
+    "args": {
+      "frame": "buddy"
+    }
+  },
+  {
+    "id": "T021",
+    "split": "train",
+    "utterance": "타이머를 삼 초로 설정해 줘",
+    "action": "set_timer",
+    "args": {
+      "seconds": 3
+    }
+  },
+  {
+    "id": "T022",
+    "split": "train",
+    "utterance": "촬영 대기 시간을 세 초로 바꿔 줘",
+    "action": "set_timer",
+    "args": {
+      "seconds": 3
+    }
+  },
+  {
+    "id": "T023",
+    "split": "train",
+    "utterance": "3초 타이머로 맞춰 줘",
+    "action": "set_timer",
+    "args": {
+      "seconds": 3
+    }
+  },
+  {
+    "id": "T024",
+    "split": "train",
+    "utterance": "타이머를 십 초로 설정해 줘",
+    "action": "set_timer",
+    "args": {
+      "seconds": 10
+    }
+  },
+  {
+    "id": "T025",
+    "split": "train",
+    "utterance": "촬영 대기 시간을 열 초로 바꿔 줘",
+    "action": "set_timer",
+    "args": {
+      "seconds": 10
+    }
+  },
+  {
+    "id": "T026",
+    "split": "train",
+    "utterance": "십 초 타이머로 맞춰 줘",
+    "action": "set_timer",
+    "args": {
+      "seconds": 10
+    }
+  },
+  {
+    "id": "T027",
+    "split": "train",
+    "utterance": "타이머를 십오 초로 설정해 줘",
+    "action": "set_timer",
+    "args": {
+      "seconds": 15
+    }
+  },
+  {
+    "id": "T028",
+    "split": "train",
+    "utterance": "촬영 대기 시간을 열다섯 초로 바꿔 줘",
+    "action": "set_timer",
+    "args": {
+      "seconds": 15
+    }
+  },
+  {
+    "id": "T029",
+    "split": "train",
+    "utterance": "십오 초 타이머로 맞춰 줘",
+    "action": "set_timer",
+    "args": {
+      "seconds": 15
+    }
+  },
+  {
+    "id": "T030",
+    "split": "train",
+    "utterance": "타이머를 이십 초로 설정해 줘",
+    "action": "set_timer",
+    "args": {
+      "seconds": 20
+    }
+  },
+  {
+    "id": "T031",
+    "split": "train",
+    "utterance": "촬영 대기 시간을 스무 초로 바꿔 줘",
+    "action": "set_timer",
+    "args": {
+      "seconds": 20
+    }
+  },
+  {
+    "id": "T032",
+    "split": "train",
+    "utterance": "이십 초 타이머로 맞춰 줘",
+    "action": "set_timer",
+    "args": {
+      "seconds": 20
+    }
+  },
+  {
+    "id": "T033",
+    "split": "train",
+    "utterance": "촬영 방법을 네 칸에서 찍기로 설정해 줘",
+    "action": "set_shooting_view",
+    "args": {
+      "view": "strip"
+    }
+  },
+  {
+    "id": "T034",
+    "split": "train",
+    "utterance": "네 칸 안에서 촬영하게 해 줘",
+    "action": "set_shooting_view",
+    "args": {
+      "view": "strip"
+    }
+  },
+  {
+    "id": "T035",
+    "split": "train",
+    "utterance": "네 칸에서 찍는 방식으로 바꿔 줘",
+    "action": "set_shooting_view",
+    "args": {
+      "view": "strip"
+    }
+  },
+  {
+    "id": "T036",
+    "split": "train",
+    "utterance": "촬영 방법을 한 컷씩 크게 찍기로 해 줘",
+    "action": "set_shooting_view",
+    "args": {
+      "view": "full"
+    }
+  },
+  {
+    "id": "T037",
+    "split": "train",
+    "utterance": "한 컷씩 큰 화면에서 찍게 해 줘",
+    "action": "set_shooting_view",
+    "args": {
+      "view": "full"
+    }
+  },
+  {
+    "id": "T038",
+    "split": "train",
+    "utterance": "풀화면 촬영 방식으로 바꿔 줘",
+    "action": "set_shooting_view",
+    "args": {
+      "view": "full"
+    }
+  },
+  {
+    "id": "T039",
+    "split": "train",
+    "utterance": "사진 찍어줘",
+    "action": "capture_photo",
+    "args": {}
+  },
+  {
+    "id": "T040",
+    "split": "train",
+    "utterance": "지금 촬영해 줘",
+    "action": "capture_photo",
+    "args": {}
+  },
+  {
+    "id": "T041",
+    "split": "train",
+    "utterance": "촬영 시작해 줘",
+    "action": "capture_photo",
+    "args": {}
+  },
+  {
+    "id": "T042",
+    "split": "train",
+    "utterance": "사진 촬영해 줘",
+    "action": "capture_photo",
+    "args": {}
+  },
+  {
+    "id": "T043",
+    "split": "train",
+    "utterance": "셔터 눌러 줘",
+    "action": "capture_photo",
+    "args": {}
+  },
+  {
+    "id": "T044",
+    "split": "train",
+    "utterance": "찍어 줘",
+    "action": "capture_photo",
+    "args": {}
+  },
+  {
+    "id": "T045",
+    "split": "train",
+    "utterance": "예쁘게 해 줘",
+    "action": "no_action",
+    "args": {
+      "reason": "ambiguous"
+    }
+  },
+  {
+    "id": "T046",
+    "split": "train",
+    "utterance": "나중에 해 줘",
+    "action": "no_action",
+    "args": {
+      "reason": "ambiguous"
+    }
+  },
+  {
+    "id": "T047",
+    "split": "train",
+    "utterance": "사진 인쇄해 줘",
+    "action": "no_action",
+    "args": {
+      "reason": "unsupported"
+    }
+  },
+  {
+    "id": "T048",
+    "split": "train",
+    "utterance": "사진을 휴대폰으로 보내 줘",
+    "action": "no_action",
+    "args": {
+      "reason": "unsupported"
+    }
+  },
+  {
+    "id": "T049",
+    "split": "train",
+    "utterance": "별빛 프레임으로 바꾸고 사진 찍어줘",
+    "action": "no_action",
+    "args": {
+      "reason": "multi_action"
+    }
+  },
+  {
+    "id": "T050",
+    "split": "train",
+    "utterance": "배치를 한 장으로 바꾸고 촬영해 줘",
+    "action": "no_action",
+    "args": {
+      "reason": "multi_action"
+    }
+  },
+  {
+    "id": "E001",
+    "split": "eval",
+    "utterance": "사진을 한 칸짜리 배치로 설정해 줘",
+    "action": "select_layout",
+    "args": {
+      "layout": "single"
+    }
+  },
+  {
+    "id": "E002",
+    "split": "eval",
+    "utterance": "한 컷 모드로 전환해 줘",
+    "action": "select_layout",
+    "args": {
+      "layout": "single"
+    }
+  },
+  {
+    "id": "E003",
+    "split": "eval",
+    "utterance": "사진 배치를 네 장짜리로 설정해 줘",
+    "action": "select_layout",
+    "args": {
+      "layout": "four_cut"
+    }
+  },
+  {
+    "id": "E004",
+    "split": "eval",
+    "utterance": "네 컷 모드로 전환해 줘",
+    "action": "select_layout",
+    "args": {
+      "layout": "four_cut"
+    }
+  },
+  {
+    "id": "E005",
+    "split": "eval",
+    "utterance": "장식 없는 기본 테두리로 바꿔 줘",
+    "action": "set_frame",
+    "args": {
+      "frame": "plain"
+    }
+  },
+  {
+    "id": "E006",
+    "split": "eval",
+    "utterance": "반짝이는 별빛 프레임을 골라 줘",
+    "action": "set_frame",
+    "args": {
+      "frame": "starlight"
+    }
+  },
+  {
+    "id": "E007",
+    "split": "eval",
+    "utterance": "색종이가 있는 파티 프레임으로 해 줘",
+    "action": "set_frame",
+    "args": {
+      "frame": "party"
+    }
+  },
+  {
+    "id": "E008",
+    "split": "eval",
+    "utterance": "별곰이 캐릭터를 사진 옆에 넣어 줘",
+    "action": "set_frame",
+    "args": {
+      "frame": "buddy"
+    }
+  },
+  {
+    "id": "E009",
+    "split": "eval",
+    "utterance": "촬영 전 카운트다운을 삼 초로 해 줘",
+    "action": "set_timer",
+    "args": {
+      "seconds": 3
+    }
+  },
+  {
+    "id": "E010",
+    "split": "eval",
+    "utterance": "촬영 전 카운트다운을 열 초로 해 줘",
+    "action": "set_timer",
+    "args": {
+      "seconds": 10
+    }
+  },
+  {
+    "id": "E011",
+    "split": "eval",
+    "utterance": "찍기 전 타이머를 십오 초로 해 줘",
+    "action": "set_timer",
+    "args": {
+      "seconds": 15
+    }
+  },
+  {
+    "id": "E012",
+    "split": "eval",
+    "utterance": "사진 타이머를 스무 초로 맞춰 줘",
+    "action": "set_timer",
+    "args": {
+      "seconds": 20
+    }
+  },
+  {
+    "id": "E013",
+    "split": "eval",
+    "utterance": "네 칸 안에서 하나씩 찍는 방법으로 해 줘",
+    "action": "set_shooting_view",
+    "args": {
+      "view": "strip"
+    }
+  },
+  {
+    "id": "E014",
+    "split": "eval",
+    "utterance": "사진을 한 컷씩 큰 화면으로 촬영하게 해 줘",
+    "action": "set_shooting_view",
+    "args": {
+      "view": "full"
+    }
+  },
+  {
+    "id": "E015",
+    "split": "eval",
+    "utterance": "이제 사진 찍어 줘",
+    "action": "capture_photo",
+    "args": {}
+  },
+  {
+    "id": "E016",
+    "split": "eval",
+    "utterance": "찰칵 찍어 줘",
+    "action": "capture_photo",
+    "args": {}
+  },
+  {
+    "id": "E017",
+    "split": "eval",
+    "utterance": "카메라로 한 번 찍어 줘",
+    "action": "capture_photo",
+    "args": {}
+  },
+  {
+    "id": "E018",
+    "split": "eval",
+    "utterance": "좀 더 보기 좋게 해 줘",
+    "action": "no_action",
+    "args": {
+      "reason": "ambiguous"
+    }
+  },
+  {
+    "id": "E019",
+    "split": "eval",
+    "utterance": "사진을 종이로 뽑아 줘",
+    "action": "no_action",
+    "args": {
+      "reason": "unsupported"
+    }
+  },
+  {
+    "id": "E020",
+    "split": "eval",
+    "utterance": "파티 프레임으로 바꾸고 촬영해 줘",
+    "action": "no_action",
+    "args": {
+      "reason": "multi_action"
+    }
+  }
+]

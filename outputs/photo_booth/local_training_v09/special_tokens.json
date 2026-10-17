@@ -1,0 +1,12 @@
+{
+  "additional_special_tokens": [
+    "<maum_0>",
+    "<maum_1>",
+    "<maum_2>",
+    "<maum_3>",
+    "<maum_4>",
+    "<maum_5>",
+    "<maum_6>",
+    "<maum_end>"
+  ]
+}
