@@ -339,10 +339,22 @@ import {createPhotoModelClient, isDirectCapturePhrase} from './model_client.mjs'
     if ($('command-backend').value === 'model') {
       if (!modelReady) return announce('학습 모델 연결을 확인해 주세요. 화면 버튼은 사용할 수 있어요.');
       if (!phrase.trim()) return announce('명령을 입력해 주세요.');
+      const startedAt = performance.now();
+      let elapsedShown = false;
+      const showElapsed = () => {
+        if (elapsedShown) return;
+        elapsedShown = true;
+        ui.voiceStatus.textContent += ` (${((performance.now() - startedAt) / 1000).toFixed(1)}초 경과)`;
+      };
       const version = interactionVersion;
       const guard = (handler) => (args) => {
         if (state.busy || version !== interactionVersion) throw new Error('설정이나 촬영 상태가 바뀌어 이전 명령을 적용하지 않았어요.');
-        return handler(args);
+        const outcome = handler(args);
+        if (state.busy && ui.voiceStatus.textContent === '학습 모델이 명령을 해석하고 있어요.') {
+          ui.voiceStatus.textContent = '촬영을 시작했어요.';
+        }
+        showElapsed();
+        return outcome;
       };
       interpreting = true;
       $('command-form').querySelector('button').disabled = true;
@@ -367,10 +379,14 @@ import {createPhotoModelClient, isDirectCapturePhrase} from './model_client.mjs'
           if (isDirectCapturePhrase(phrase)) return true;
           return window.confirm('사진 촬영을 시작할까요? 현재 타이머와 배치로 촬영합니다.');
         }});
-        if (result.action === 'capture_photo' && !result.executed) announce('촬영을 시작하지 않았어요.');
+        if (result.action === 'capture_photo' && !result.executed) {
+          announce('촬영을 시작하지 않았어요.');
+          showElapsed();
+        }
       } catch (error) {
         announce(error.name === 'AbortError' ? '명령 해석 시간이 초과됐어요. 다시 시도하거나 화면 버튼을 이용해 주세요.'
           : error.message || '명령 모델에 연결할 수 없어요. 화면 버튼을 이용해 주세요.');
+        showElapsed();
       } finally {
         interpreting = false;
         $('command-form').querySelector('button').disabled = false;
