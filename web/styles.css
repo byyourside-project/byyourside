@@ -36,6 +36,9 @@ a { color: inherit; }
 }
 .brand { text-decoration: none; display: flex; align-items: center; gap: 15px; font-size: 34px; font-weight: 800; }
 .brand span { font-size: 12px; font-weight: 500; letter-spacing: .09em; color: var(--muted); }
+.stage-nav { display: flex; gap: 24px; font-size: 14px; margin-left: auto; margin-right: 32px; }
+.stage-nav a { color: var(--green); }
+.stage-nav span { font-weight: 700; }
 .privacy { font-size: 12px; display: flex; align-items: center; gap: 8px; }
 .privacy i { background: #568867; width: 6px; height: 6px; border-radius: 50%; }
 main { max-width: 1334px; margin: auto; padding: 42px 28px 0; }
@@ -207,6 +210,7 @@ footer span { font-size: 10px; }
   .brand { font-size: 29px; }
   .brand span { font-size: 10px; }
   .privacy { font-size: 10px; }
+  .stage-nav { gap: 14px; font-size: 13px; margin-right: 16px; }
   .intro h1 { font-size: 29px; }
   .intro p { font-size: 12px; line-height: 1.8; }
   .workspace { grid-template-columns: 1fr; }

@@ -668,7 +668,7 @@ $('prepare-live').addEventListener('click', async () => {
       title: report?.title || '발표 연습 대본', review_id: report?.id || null,
     });
     $('presentation-link').href = data.url;
-    status('대본' + (report?.expected_qa ? '과 예상 질문을' : '을') + ' 전달했어요. 위의 발표 중 화면 열기를 누르고 입력 방식을 확인한 뒤 시작하세요.');
+    status('대본' + (report?.expected_qa ? '과 예상 질문을' : '을') + ' 전달했어요. 위의 ‘발표 중’을 누르고 입력 방식을 확인한 뒤 시작하세요.');
   } catch (error) {
     status(error.message, true);
   } finally { setBusy(false); }
@@ -677,6 +677,8 @@ request('/api/status').then(data => {
   if (data.presentation_url) {
     $('presentation-link').href = data.presentation_url;
     $('presentation-link').hidden = false;
+    $('after-link').href = new URL('/after', data.presentation_url).href;
+    $('after-link').hidden = false;
     $('prepare-live').hidden = false;
     $('live-help').hidden = false;
   }
