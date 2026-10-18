@@ -1,44 +1,50 @@
 # 음성 조작 무인 포토존
 
-촬영 위치에서 화면을 터치하지 않고 배치, 프레임, 타이머, 촬영 화면 구도를 음성으로 바꾼 뒤 사진을 찍는 PC 시연 앱입니다. 행사장처럼 카메라·조작 화면과 촬영 위치가 떨어진 공간을 가정합니다.
+카메라와 조작 화면에서 떨어진 촬영 위치에서도 말로 설정을 바꾸고 사진을 찍을 수 있는 PC 시연 앱입니다. 행사장 포토존을 가정하며, 화면 버튼과 문장 입력으로도 조작할 수 있습니다.
 
-**PC 시연 영상**
+**[PC 시연 영상 보기](https://github.com/user-attachments/assets/c7effb1f-1730-46ce-8f6c-a51e0414538c)**
 
-https://github.com/user-attachments/assets/c7effb1f-1730-46ce-8f6c-a51e0414538c
+## 실행하기
 
-## 실행
-
-Python 3으로 프로젝트 폴더에서 실행합니다.
+Python 3이 설치된 PC에서 이 저장소의 최상위 폴더를 열고 실행합니다.
 
 ```bash
-python scripts/run_photo_booth.py
+python3 scripts/run_photo_booth.py
 ```
 
-브라우저에서 `http://127.0.0.1:8770/`을 엽니다. 이 방식은 앱과 기존 키워드 해석기를 사용하며 모델 설치가 필요 없습니다. 카메라 접근을 허용하고, 브라우저에서 음성 인식이 지원되면 **말하기**를 누릅니다. 문장 입력과 화면 버튼도 사용할 수 있습니다.
+브라우저에서 `http://127.0.0.1:8770/`을 열고 카메라 사용을 허용합니다. **말하기** 버튼은 브라우저가 한국어 음성 인식을 지원하고 마이크 사용을 허용한 경우에 사용할 수 있습니다. 음성 인식이 되지 않아도 문장 입력과 화면 버튼으로 시연할 수 있습니다.
 
-학습된 Llama 3.2 1B 어댑터로 명령을 해석하려면 [다른 PC 설치 안내](docs/photo_booth/OTHER_LAPTOP_TEST.md)에 따라 원본 모델과 Python 패키지를 준비한 뒤 실행합니다.
+이 기본 실행 방식은 키워드로 명령을 해석하므로 학습 모델이나 별도 AI 패키지를 설치할 필요가 없습니다.
+
+## 할 수 있는 일
+
+- 사진 1장 또는 4컷 촬영
+- 기본·별빛·파티·별곰이 프레임 선택
+- 3·10·15·20초 타이머 설정
+- 4컷 촬영 시 네 칸을 보며 찍거나, 한 컷씩 큰 화면으로 찍는 방식 선택
+- 화면 확대·축소와 상하좌우 구도 이동, 구도 초기화
+- 음성·문장·버튼으로 설정을 바꾸고 현재 설정으로 촬영
+
+구도 이동은 카메라 본체를 움직이는 대신 미리보기 영상을 확대하고 잘라 적용합니다. 촬영 결과는 화면에 표시되지만 파일 저장·인쇄·공유 기능은 아직 없습니다.
+
+## 학습 모델로 실행하기
+
+음성 인식이 문장으로 바꾼 명령을 학습된 Llama 3.2 1B가 해석하도록 연결할 수 있습니다. 원본 모델 가중치와 필요한 Python 패키지를 준비한 뒤 실행합니다.
 
 ```bash
-python scripts/run_photo_booth.py --trained
+python3 scripts/run_photo_booth.py --trained
 ```
 
-Windows에서는 같은 준비를 마친 뒤 `start_photo_booth.cmd`를 사용할 수 있습니다. 원본 모델의 가중치와 계정 토큰은 이 브랜치에 포함하지 않았습니다.
+설치 방법은 [다른 PC 실행 안내](docs/photo_booth/OTHER_LAPTOP_TEST.md)를 참고하세요. 이 저장소에는 학습 어댑터와 토크나이저가 있으며, 원본 Llama 가중치와 계정 토큰은 포함하지 않았습니다. Windows용 실행 파일은 `start_photo_booth.cmd`입니다.
 
-## 기능과 현재 결과
+학습 데이터 1,280개로 모델을 학습했고, 합성 텍스트 검증 256개 중 193개가 정답과 완전히 일치했습니다(75.39%). 실제 현장의 소음과 원거리 음성 인식, 별도 시험 데이터 성능은 아직 확인하지 않았습니다. 자세한 수치와 오류는 [학습·평가 결과](docs/photo_booth/GPU_PC_RESULT.md)에 정리했습니다.
 
-- 1장 또는 4컷 배치, 프레임 4종, 3·10·15·20초 타이머
-- 4컷 촬영 시 네 칸을 보면서 찍거나 한 장씩 큰 화면으로 찍는 방식
-- 화면 확대·축소·상하좌우 이동과 구도 초기화, 현재 설정으로 촬영
-- 한국어 음성 명령 또는 문장 입력. 학습 모델 사용 시 기능과 인자를 해석하고 앱이 실행
+## 프로젝트 자료
 
-학습용 문장 1,280개로 Llama 3.2 1B를 한 차례 학습했습니다. 합성 검증 문장 256개 중 193개(75.39%)의 출력이 정답과 완전히 일치했습니다. 최종 시험 256개와 실제 행사 소음·원거리 음성 인식의 정확도는 아직 측정하지 않았습니다. [학습 결과와 오류 분석](docs/photo_booth/GPU_PC_RESULT.md)을 참고하세요.
-
-## 자료
-
-- [기능·사용 안내](docs/photo_booth/README.md)
+- [기능과 현재 구현 상태](docs/photo_booth/README.md)
 - [요구사항](docs/photo_booth/requirements.md) · [프로젝트 계획](docs/photo_booth/project_plan.md)
-- [데이터 설계](docs/photo_booth/data_design.md) · [v09 데이터 점검](docs/photo_booth/dataset_v09_review.md)
+- [데이터 설계](docs/photo_booth/data_design.md) · [데이터 점검](docs/photo_booth/dataset_v09_review.md)
 - [마음AI 예시 형식 데이터시트](outputs/photo_booth/음성포토존_마음AI형식_검수전_v09.xlsx)
-- [모델 연결](docs/photo_booth/model_integration.md) · [다른 PC 설치 안내](docs/photo_booth/OTHER_LAPTOP_TEST.md)
+- [모델 연결 방식](docs/photo_booth/model_integration.md)
 
-모델의 출력 토큰 번호와 인자값은 팀의 임시 사양입니다. 마음AI 최종 코드와 QCS6490 보드 적용, 양자화는 아직 이 앱에 연결되지 않았습니다.
+데이터시트와 함수 토큰은 팀 검수 전 초안입니다. QCS6490 보드용 변환과 양자화는 현재 PC 시연 앱에 적용되지 않았습니다.
