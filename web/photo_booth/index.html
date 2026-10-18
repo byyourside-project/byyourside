@@ -48,7 +48,7 @@
     </section>
 
     <section class="voice-bar" aria-label="음성 명령 시연"><div class="voice-heading"><span class="voice-symbol" aria-hidden="true">⌁</span><div><strong>음성으로도 조작해 보세요</strong><p id="voice-status" role="status" aria-live="polite">마이크를 누르거나 아래에 문장을 입력해 보세요.</p></div></div><div class="voice-actions"><form id="command-form"><label class="sr-only" for="command">명령 입력</label><input id="command" autocomplete="off" placeholder="예: 타이머를 십 초로 설정해 줘"><button type="submit">적용</button></form><button id="listen" type="button" class="mic-button"><span aria-hidden="true">●</span> 말하기</button></div></section>
-    <section class="command-mode" aria-label="명령 해석 선택"><label for="command-backend">명령 해석</label><select id="command-backend" disabled><option value="model">학습 모델</option><option value="rules">기존 키워드</option></select><span id="model-status" role="status">연결 확인 중…</span><p>학습 모델이 촬영을 제안하면 확인 후 시작합니다. 화면 버튼은 바로 사용할 수 있어요.</p></section>
+    <section class="command-mode" aria-label="명령 해석 선택"><label for="command-backend">명령 해석</label><select id="command-backend" disabled><option value="model">학습 모델</option><option value="rules">기존 키워드</option></select><span id="model-status" role="status">연결 확인 중…</span><p>“사진 찍어줘”는 바로 타이머가 시작돼요. 불분명한 촬영 명령은 확인 후 진행합니다.</p></section>
     <footer><span>추천 명령: “화면 확대해 줘” · “왼쪽으로 옮겨 줘” · “구도 초기화해 줘” · “사진 찍어줘”</span><span id="backend-label">명령 해석 연결 확인 중</span></footer>
   </main>
   <dialog id="command-guide" class="command-guide" aria-labelledby="command-guide-title" aria-describedby="command-guide-description">
@@ -60,7 +60,7 @@
       <section class="guide-card"><h3>03 · 타이머</h3><p class="guide-example">“타이머를 십 초로 설정해 줘”</p><p>3초 · 10초 · 15초 · 20초 중에서 선택해요.</p></section>
       <section class="guide-card"><h3>04 · 네 컷 촬영 방법</h3><p class="guide-example">“한 컷씩 크게 찍어줘”</p><p>먼저 네 컷 배치를 선택하세요. “네 칸에서 찍어줘”로 바꿀 수도 있어요. 촬영 방법만 설정해요.</p></section>
       <section class="guide-card"><h3>05 · 화면 구도</h3><p class="guide-example">“화면 확대해 줘”</p><p>“화면 축소해 줘” · “왼쪽으로 옮겨 줘” · “오른쪽으로 옮겨 줘” · “위로 옮겨 줘” · “아래로 옮겨 줘” · “구도 초기화해 줘”</p><p>위치 이동은 화면을 확대한 뒤 사용할 수 있어요.</p></section>
-      <section class="guide-card"><h3>06 · 사진 촬영</h3><p class="guide-example">“사진 찍어줘”</p><p>현재 배치·프레임·타이머로 촬영해요. 학습 모델 모드에서는 촬영 확인 후 시작해요.</p></section>
+      <section class="guide-card"><h3>06 · 사진 촬영</h3><p class="guide-example">“사진 찍어줘”</p><p>현재 배치·프레임·타이머로 바로 촬영해요. 불분명한 촬영 명령은 확인 후 시작해요.</p></section>
     </div>
     <div class="guide-tip"><strong>설정한 다음, 따로 촬영을 요청해 주세요.</strong><p>“네 컷으로 바꾸고 사진 찍어줘” 대신 “네 컷 배치로 바꿔줘” → “사진 찍어줘”처럼 나누어 말해요. 명령이 잘 인식되지 않으면 화면 버튼으로도 조작할 수 있어요.</p></div>
     <p class="guide-dismiss">닫기 버튼 · 팝업 바깥 클릭 · Esc 키로 닫을 수 있어요.</p>

@@ -1,4 +1,10 @@
 // Connect final STT transcripts to the model; keep camera/state logic in the app.
+export function isDirectCapturePhrase(text) {
+  const normalized = text.replace(/[\s.!?。！？]/g, '');
+  return new Set(['사진찍어줘', '사진찍어주세요', '사진촬영해줘', '사진촬영해주세요',
+    '촬영해줘', '촬영해주세요', '지금사진찍어줘', '지금사진찍어주세요']).has(normalized);
+}
+
 export function createPhotoModelClient({url = 'http://127.0.0.1:8771', fetchImpl = globalThis.fetch} = {}) {
   let latest = 0;
   const actions = new Set(['select_layout', 'set_frame', 'set_timer', 'capture_photo',

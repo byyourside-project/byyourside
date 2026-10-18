@@ -1,5 +1,12 @@
 import assert from 'node:assert/strict';
-import {createPhotoModelClient} from '../web/photo_booth/model_client.mjs';
+import {createPhotoModelClient, isDirectCapturePhrase} from '../web/photo_booth/model_client.mjs';
+
+for (const phrase of ['사진 찍어줘', '사진찍어줘.', '사진 찍어 주세요!', '촬영해줘', '지금 사진 찍어줘']) {
+  assert.equal(isDirectCapturePhrase(phrase), true, phrase);
+}
+for (const phrase of ['촬영 화면 바꿔줘', '사진 찍어줘 말고 화면 바꿔줘', '네 컷으로 찍어줘', '다시 찍어줘']) {
+  assert.equal(isDirectCapturePhrase(phrase), false, phrase);
+}
 
 const response = (result) => async () => ({ok: true, json: async () => result});
 const capture = {action: 'capture_photo', args: {}, confirmation_required: true};

@@ -1,4 +1,4 @@
-import {createPhotoModelClient} from './model_client.mjs';
+import {createPhotoModelClient, isDirectCapturePhrase} from './model_client.mjs';
 
 (() => {
   'use strict';
@@ -364,6 +364,7 @@ import {createPhotoModelClient} from './model_client.mjs';
             multi_action: '여러 동작이 포함된 것으로 판단했어요. 한 가지씩 말해 주세요.'}[reason] || '명령을 실행하지 않았어요.')),
         }, {confirmCapture: () => {
           if (state.busy || version !== interactionVersion) return false;
+          if (isDirectCapturePhrase(phrase)) return true;
           return window.confirm('사진 촬영을 시작할까요? 현재 타이머와 배치로 촬영합니다.');
         }});
         if (result.action === 'capture_photo' && !result.executed) announce('촬영을 시작하지 않았어요.');
