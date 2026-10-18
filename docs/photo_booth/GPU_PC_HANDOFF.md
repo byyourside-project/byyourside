@@ -2,7 +2,11 @@
 
 2026-10-18 기준. GitHub의 `codex/photo-booth-training-handoff` 브랜치에는 기존 프로젝트와 사진관 시연 앱, 학습 데이터 및 코드가 함께 있다. 채팅 기록 없이 이 브랜치에서 작업을 이어갈 수 있다.
 
-## 현재 상태
+## GPU PC에서 이어서 완료한 결과
+
+2026-10-18 업데이트: GTX 1660 PC에서 전체 1회 학습과 검증을 완료했다. 검증 193/256(75.39%), 기본 모델 0/256이다. [결과와 오답 기록](GPU_PC_RESULT.md), [앱 연결 방법](model_integration.md)을 참고한다. 아래 Mac 기록은 이전 환경의 이력이다.
+
+## 이전 환경 상태
 
 - 목표: Meta `meta-llama/Llama-3.2-1B-Instruct`에 사진관 음성 명령을 학습한다. 현재 8개 사용자 정의 토큰(`<maum_0>`~`<maum_6>`, `<maum_end>`)을 추가하고 LoRA를 학습하는 자체 시험 코드다. 마음AI의 최종 코드와 같다고 보장하지 않는다.
 - 데이터: `outputs/photo_booth/local_training_v09/`에 학습 1,280개, 검증 256개, 최종 시험 256개가 있다. 합성 초안이므로 본격 학습 전 사람 검수가 필요하다.
@@ -13,7 +17,7 @@
 ## 새 컴퓨터에서 먼저 확인할 것
 
 1. 운영체제, GPU 이름과 GPU 메모리(VRAM), 시스템 RAM, 빈 저장 공간을 확인한다. 권장 여유는 전용 GPU VRAM 12~16GB 이상, RAM 16GB 이상, 빈 저장 공간 20GB 이상이다. 이는 현재 코드의 보수적 추정치이며 최소 사양은 아니다.
-2. `codex/photo-booth-training-handoff` 브랜치를 내려받는다. 모델 본체와 계정 토큰은 포함하지 않았다. 사진관 시연 앱은 `web/photo_booth/`와 `scripts/run_photo_booth.py`에 있고, 학습된 모델을 연결한 버전은 아직 아니다.
+2. `codex/photo-booth-training-handoff` 브랜치를 내려받는다. 모델 본체와 계정 토큰은 포함하지 않았다. 사진관 앱은 `web/photo_booth/`와 `scripts/run_photo_booth.py`에 있다. 현재는 `artifacts/photo_booth_llama_v09/`의 학습 어댑터를 `--trained`로 연결할 수 있다. [다른 노트북 시험 안내](OTHER_LAPTOP_TEST.md)를 따른다.
 3. Hugging Face 계정에서 Meta Llama 3.2 접근이 승인된 상태인지 확인한다. 토큰은 새 컴퓨터에서 직접 로그인하며 채팅, 문서, 코드에 기록하지 않는다.
 4. 새 컴퓨터의 Python 및 GPU용 PyTorch가 정상 설치되는지 확인한다. `requirements-photo-train.txt`의 PyTorch 버전은 기존 Mac 시험 버전이다. CUDA 컴퓨터에서는 공식 PyTorch 설치 안내에 맞는 GPU 빌드를 먼저 설치하고, 나머지 패키지 버전을 맞춘다.
 

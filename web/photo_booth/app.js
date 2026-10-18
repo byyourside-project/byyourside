@@ -1,3 +1,5 @@
+import {createPhotoModelClient} from './model_client.mjs';
+
 (() => {
   'use strict';
   const $ = (id) => document.getElementById(id);
@@ -15,6 +17,22 @@
     shootingView: { strip: '네 칸에서', full: '한 컷씩 크게' },
   };
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const applyModelTranscript = createPhotoModelClient({url: window.location.origin});
+  const commandGuide = $('command-guide');
+  $('open-command-guide').addEventListener('click', () => {
+    if (commandGuide.open) return;
+    commandGuide.showModal();
+    document.body.classList.add('guide-open');
+  });
+  commandGuide.addEventListener('close', () => document.body.classList.remove('guide-open'));
+  commandGuide.addEventListener('click', (event) => {
+    if (event.target !== commandGuide) return;
+    const bounds = commandGuide.getBoundingClientRect();
+    if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) commandGuide.close();
+  });
+  let interpreting = false;
+  let modelReady = false;
+  let interactionVersion = 0;
 
   function announce(message, stage = message) {
     ui.voiceStatus.textContent = message;
@@ -86,6 +104,7 @@
 
   function adjustView(action) {
     if (state.busy) return;
+    interactionVersion += 1;
     if (action === 'zoomIn') state.zoom = Math.min(2, state.zoom + .25);
     else if (action === 'zoomOut') state.zoom = Math.max(1, state.zoom - .25);
     else if (action === 'reset') { state.zoom = 1; state.panX = 0; state.panY = 0; }
@@ -108,6 +127,7 @@
 
   function setSetting(setting, value) {
     if (state.busy) return;
+    interactionVersion += 1;
     if (setting === 'shootingView' && state.layout !== 'four_cut') {
       announce('네 컷 배치를 선택한 뒤 촬영 방법을 정해 주세요.');
       return;
@@ -215,6 +235,7 @@
 
   async function capture() {
     if (state.busy) return;
+    interactionVersion += 1;
     if (!state.stream || ui.video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
       announce('카메라가 연결된 뒤 촬영할 수 있어요.', '카메라 연결 필요');
       return;
@@ -312,13 +333,75 @@
     return { error: '명령을 이해하지 못했어요. 화면 아래 추천 명령을 참고해 주세요.' };
   }
 
-  function runCommand(phrase) {
+  async function runCommand(phrase) {
     if (state.busy) return announce('촬영이 끝난 뒤 다시 말해 주세요.');
+    if (interpreting) return announce('이전 명령을 해석하고 있어요. 잠시 기다려 주세요.');
+    if ($('command-backend').value === 'model') {
+      if (!modelReady) return announce('학습 모델 연결을 확인해 주세요. 화면 버튼은 사용할 수 있어요.');
+      if (!phrase.trim()) return announce('명령을 입력해 주세요.');
+      const version = interactionVersion;
+      const guard = (handler) => (args) => {
+        if (state.busy || version !== interactionVersion) throw new Error('설정이나 촬영 상태가 바뀌어 이전 명령을 적용하지 않았어요.');
+        return handler(args);
+      };
+      interpreting = true;
+      $('command-form').querySelector('button').disabled = true;
+      announce('학습 모델이 명령을 해석하고 있어요.');
+      try {
+        const result = await applyModelTranscript(phrase, {
+          select_layout: guard(({layout}) => setSetting('layout', layout)),
+          set_frame: guard(({frame}) => setSetting('frame', frame)),
+          set_timer: guard(({seconds}) => setSetting('timer', seconds)),
+          set_shooting_view: guard(({view}) => {
+            if (state.layout !== 'four_cut') throw new Error('네 컷 배치를 선택한 뒤 촬영 방법을 정해 주세요.');
+            setSetting('shootingView', view);
+          }),
+          adjust_view: guard(({adjustment}) => adjustView({zoom_in: 'zoomIn', zoom_out: 'zoomOut',
+            move_left: 'left', move_right: 'right', move_up: 'up', move_down: 'down', reset: 'reset'}[adjustment])),
+          capture_photo: guard(() => capture()),
+          no_action: guard(({reason}) => announce({ambiguous: '명령이 불명확해 실행하지 않았어요.',
+            unsupported: '지원하지 않는 명령으로 판단해 실행하지 않았어요.',
+            multi_action: '여러 동작이 포함된 것으로 판단했어요. 한 가지씩 말해 주세요.'}[reason] || '명령을 실행하지 않았어요.')),
+        }, {confirmCapture: () => {
+          if (state.busy || version !== interactionVersion) return false;
+          return window.confirm('사진 촬영을 시작할까요? 현재 타이머와 배치로 촬영합니다.');
+        }});
+        if (result.action === 'capture_photo' && !result.executed) announce('촬영을 시작하지 않았어요.');
+      } catch (error) {
+        announce(error.name === 'AbortError' ? '명령 해석 시간이 초과됐어요. 다시 시도하거나 화면 버튼을 이용해 주세요.'
+          : error.message || '명령 모델에 연결할 수 없어요. 화면 버튼을 이용해 주세요.');
+      } finally {
+        interpreting = false;
+        $('command-form').querySelector('button').disabled = false;
+      }
+      return;
+    }
     const command = interpret(phrase);
     if (command.error) return announce(command.error);
     if (command.action === 'capture') return capture();
     if (command.viewAction) return adjustView(command.viewAction);
     setSetting(command.setting, command.value);
+  }
+
+  function updateBackendLabel() {
+    $('backend-label').textContent = $('command-backend').value === 'model' ? '학습 모델로 명령 해석' : '기존 키워드로 명령 해석';
+    interactionVersion += 1;
+  }
+  $('command-backend').addEventListener('change', updateBackendLabel);
+  async function configureBackend() {
+    try {
+      const response = await fetch('/api/photo/config', {cache: 'no-store'});
+      if (!response.ok) throw new Error('connection failed');
+      const config = await response.json();
+      modelReady = config.ready === true && config.backend === 'trained_llama';
+      $('command-backend').querySelector('[value="model"]').disabled = !modelReady;
+      $('command-backend').value = modelReady ? 'model' : 'rules';
+      $('model-status').textContent = modelReady ? '학습 모델 연결됨' : '기존 키워드 모드 · 학습 모델 연결 안 됨';
+      $('command-backend').disabled = false;
+    } catch {
+      $('model-status').textContent = '명령 해석 연결 실패 · 화면 버튼을 이용해 주세요';
+    }
+    updateBackendLabel();
   }
 
   document.querySelectorAll('[data-setting]').forEach((button) => button.addEventListener('click', () => setSetting(button.dataset.setting, button.dataset.value)));
@@ -354,7 +437,7 @@
     recognition.onerror = (event) => announce(event.error === 'not-allowed' ? '마이크 사용을 허용해 주세요.' : '음성을 인식하지 못했어요. 다시 말하거나 문장을 입력해 주세요.');
     recognition.onend = () => ui.listen.classList.remove('listening');
     ui.listen.addEventListener('click', () => {
-      if (state.busy) return;
+      if (state.busy || interpreting) return;
       try { recognition.start(); ui.listen.classList.add('listening'); announce('듣고 있어요. 명령을 말씀해 주세요.'); }
       catch { announce('잠시 후 다시 말해 주세요.'); }
     });
@@ -368,6 +451,7 @@
   tickClock();
   setInterval(tickClock, 30_000);
   updateSettings();
+  configureBackend();
   drawLiveSlot();
   connectCamera();
   window.addEventListener('pagehide', () => state.stream?.getTracks().forEach((track) => track.stop()));

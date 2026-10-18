@@ -49,13 +49,13 @@ def completion(row: dict) -> str:
 
 
 def export(source: Path = SOURCE, destination: Path = DESTINATION) -> Counter:
-    rows = json.loads(source.read_text())
+    rows = json.loads(source.read_text(encoding="utf-8"))
     if len({row["utterance"] for row in rows}) != len(rows):
         raise ValueError("duplicate utterances across splits")
     destination.mkdir(parents=True, exist_ok=True)
     counts: Counter = Counter()
     for split, name in (("train", "train.jsonl"), ("eval", "valid.jsonl"), ("test", "test.jsonl")):
-        with (destination / name).open("w") as stream:
+        with (destination / name).open("w", encoding="utf-8", newline="\n") as stream:
             for row in rows:
                 if row["split"] != split:
                     continue

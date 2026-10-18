@@ -12,6 +12,10 @@ __pycache__/
 # Models and checkpoints
 models/
 *.onnx
+*.safetensors
+*.pt
+# Portable learned adapter is intentionally tracked; base weights/checkpoints are not.
+!artifacts/photo_booth_llama_v09/adapter/adapter_model.safetensors
 
 # Audio files and recordings
 audio/

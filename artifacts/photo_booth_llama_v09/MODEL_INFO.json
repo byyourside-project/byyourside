@@ -1,0 +1,16 @@
+{
+  "base_model": "meta-llama/Llama-3.2-1B-Instruct",
+  "base_revision": "9213176726f574b556790deb65791e0c5aa438b6",
+  "training_examples": 1280,
+  "training_steps": 1280,
+  "epochs": 1,
+  "validation_correct": 193,
+  "validation_total": 256,
+  "test_evaluated": false,
+  "tensor_count": 66,
+  "adapter_sha256": "92f8516b6f5b394754d8ee33baa1463ace306917ee4356297ea2a92866d8c68c",
+  "contains_base_weights": false,
+  "model_name": "Llama-3.2-1B-PhotoBooth-v09",
+  "portable_validation_predictions_identical": true,
+  "portable_validation_examples": 256
+}
