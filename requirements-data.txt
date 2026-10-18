@@ -1,2 +1,0 @@
-# Only for reading the reviewed XLSX; the runtime app does not need this package.
-openpyxl>=3.1,<4

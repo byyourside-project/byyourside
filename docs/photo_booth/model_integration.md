@@ -22,7 +22,7 @@ python scripts/run_photo_booth.py --model-adapter "학습결과/gpu_full_v09"
 
 `--model-adapter`에는 `adapter/`와 `tokenizer/`가 함께 들어 있는 폴더를 지정한다. 모델 파일은 이미 내려받은 로컬 캐시만 읽는다. 준비가 완료되면 `http://127.0.0.1:8770/`에 접속한다. 시작 시 모델을 한 번 로드하고 재사용한다. 모델 옵션을 빼면 기존 키워드 시연으로 실행한다.
 
-현재 PC용 실행 파일은 채팅 산출물의 `start_photo_booth_model.ps1`이다. 이 실행 파일은 현재 PC의 환경과 모델 경로를 사용하며, 다른 PC에서는 경로를 맞춰야 한다.
+Windows에서는 [다른 PC 설치 안내](OTHER_LAPTOP_TEST.md)에 따라 준비한 뒤 저장소의 `start_photo_booth.cmd`를 사용할 수 있다.
 
 ## API
 
