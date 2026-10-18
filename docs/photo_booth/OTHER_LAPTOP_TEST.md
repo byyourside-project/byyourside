@@ -4,6 +4,22 @@
 
 브랜치: `codex/photo-booth-training-handoff`.
 
+## 모델이 포함된 배포 묶음으로 실행
+
+[온디바이스 v09 릴리즈](https://github.com/byyourside-project/byyourside/releases/tag/photo-booth-ondevice-v09)의 `byyourside-photo-booth-ondevice-v09.zip`을 내려받아 압축을 푼다. 기본 모델, 학습 어댑터, 앱, 라이선스가 함께 들어 있어 Hugging Face 로그인이나 재학습이 필요 없다. 아래 브랜치 설치 절차 대신 ZIP 안의 `START_HERE.md`를 따른다.
+
+Windows에서는 Python 설치 후 압축을 푼 프로젝트 폴더에서 다음을 실행한다.
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements-photo-train.txt
+.\.venv\Scripts\python.exe scripts/run_photo_booth.py --trained --model base_model
+```
+
+다음 실행부터는 `start_photo_booth_offline.cmd`를 사용한다. 브라우저에서 `http://127.0.0.1:8770/`을 연다. GPU가 없으면 CPU를 사용하며 속도는 장비에 따라 다르다. 최초 패키지 설치에는 인터넷이 필요하고, 기존 브라우저 음성 인식도 네트워크를 사용할 수 있다. 카메라는 연결 후 브라우저에서 접근을 허용한다.
+
+## 브랜치만 받는 경우
+
 이 브랜치에는 사진관 앱, 명령 가이드, 학습·평가 코드, 결과가 반영된 데이터셋 엑셀, 작은 학습 어댑터와 토크나이저가 포함된다. Hugging Face 토큰, 원본 Llama 가중치, 재개용 대용량 체크포인트는 포함하지 않는다. 다시 학습할 필요는 없다.
 
 ## 1. 브랜치 받기
