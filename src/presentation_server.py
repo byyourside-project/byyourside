@@ -12,6 +12,7 @@ from src.script_coaching import prepare_script, ScriptSession
 from src.voice_feedback import VoiceFeedback
 from src.presentation_after import AfterStore, markdown_report
 from src.question_audio import QuestionAudio
+from src.expected_qa import sanitize_for_live
 
 _UNCHANGED = object()
 
@@ -53,6 +54,7 @@ class PresentationApp:
         self.quality_flags = set()
         self.voice_enabled = False
         self.review_url = None
+        self.expected_qa = None
         self.voice_scope = "pace"
         self.voice_generation = 0
         self.voice_last_event = None
@@ -65,7 +67,7 @@ class PresentationApp:
     def state(self):
         with self.lock:
             return {"deck": self.deck, "session": self.session.snapshot() if self.session else None,
-                    "review_url": self.review_url,
+                    "review_url": self.review_url, "expected_qa": self.expected_qa,
                     "start_preparing": self.start_preparing, "coach_status": dict(self.coach_status),
                     "audio_status": self.audio_status, "coach": self.coach.name, "output_path": self.output_path,
                     "audio_input_mode": self.audio_input_mode, "audio_error": self.audio_error,
@@ -439,7 +441,15 @@ class PresentationApp:
                 next_deck = prepare_script(body.get("text"), body.get("duration_sec"), body.get("title", "대본 발표")) if action == "script" else validate_deck(body)
                 if action == "deck" and "script_text" in next_deck:
                     next_deck = prepare_script(next_deck["script_text"], next_deck["total_duration_sec"], next_deck["title"])
+                # Prepared questions travel with the rehearsal script; editing the script here keeps them,
+                # loading a different deck clears them.
+                next_qa = self.expected_qa
+                if action == "deck":
+                    next_qa = None
+                elif "expected_qa" in body:
+                    next_qa = None if body["expected_qa"] is None else sanitize_for_live(body["expected_qa"])
                 self.deck = next_deck
+                self.expected_qa = next_qa
                 # The ended session already has its own saved deck snapshot.
                 # Clearing the active reference lets preparation show the new
                 # materials, instead of the previous presentation's results.

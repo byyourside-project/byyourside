@@ -1,7 +1,7 @@
 'use strict';
 
 const $ = id => document.getElementById(id);
-const TAB_NAMES = ['feedback', 'transcript', 'comparison'];
+const TAB_NAMES = ['feedback', 'transcript', 'comparison', 'qa'];
 const VIDEO_EXTENSIONS = new Set(['.mp4', '.mov', '.webm', '.mkv']);
 const AUDIO_EXTENSIONS = new Set(['.wav', '.m4a', '.mp3', '.flac', '.ogg', '.aac']);
 let selectedFile = null;
@@ -28,7 +28,7 @@ function status(message, error = false) {
 
 function setBusy(value) {
   busy = value;
-  ['analyze', 'demo', 'save', 'recompare', 'audio-file', 'script-file', 'script', 'target', 'review-title', 'prepare-live']
+  ['analyze', 'demo', 'save', 'recompare', 'audio-file', 'script-file', 'script', 'target', 'review-title', 'prepare-live', 'qa-generate', 'qa-save']
     .forEach(id => $(id).disabled = value);
   document.querySelector('.results').setAttribute('aria-busy', String(value));
 }
@@ -315,8 +315,68 @@ function renderIntervals(container, items, emptyMessage) {
   }
 }
 
+const QA_CATEGORY_CLASS = {'연습에서 빠진 부분': 'qa-category rehearsal'};
+function renderQA(data) {
+  const doc = data.expected_qa;
+  $('qa-generate').textContent = doc ? '다시 만들기' : '예상 질문 만들기';
+  $('qa-save').hidden = !doc || !doc.items.length;
+  $('qa-limitations').textContent = doc ? doc.limitations.join(' ') : '';
+  if (!doc) {
+    $('qa-meta').textContent = '대본을 입력하고 분석한 기록에서 만들 수 있어요.';
+    $('qa-list').replaceChildren();
+    return;
+  }
+  const source = doc.generator.startsWith('ollama:') ? `로컬 AI (${doc.generator.slice(7)})` : '규칙 기반 초안';
+  $('qa-meta').textContent = `${doc.items.length}개 · ${source}` + (doc.note ? ` · ${doc.note}` : '');
+  $('qa-list').replaceChildren(...doc.items.map(item => {
+    const card = el('article', undefined, 'qa-item');
+    card.dataset.id = item.id;
+    const head = el('header');
+    const remove = el('button', '×', 'qa-remove');
+    remove.type = 'button';
+    remove.title = '이 질문 빼기';
+    remove.setAttribute('aria-label', `${item.id} 질문 빼기`);
+    remove.onclick = () => { card.remove(); $('qa-save').hidden = false; status('뺀 질문은 답변 메모 저장을 누르면 반영돼요.'); };
+    head.append(el('span', item.category, QA_CATEGORY_CLASS[item.category] || 'qa-category'), remove);
+    const points = el('ul', undefined, 'qa-points');
+    points.append(...item.answer_points.map(point => el('li', point)));
+    const evidence = el('p', '근거: ' + item.evidence.map(e => `대본 ${e.line}번째 줄`).join(', '), 'qa-evidence');
+    const answer = el('textarea');
+    answer.value = item.my_answer || '';
+    answer.placeholder = '내 답변 메모 (발표 중 화면에서도 보여요)';
+    answer.maxLength = 2000;
+    answer.setAttribute('aria-label', `${item.id} 내 답변 메모`);
+    card.append(head, el('p', item.question, 'qa-question'), points, evidence, answer);
+    return card;
+  }));
+}
+async function qaRequest(body, message) {
+  if (!report || busy) return;
+  try {
+    setBusy(true);
+    status(message);
+    const doc = await post(`/api/reviews/${report.id}/expected-qa`, body);
+    report.expected_qa = doc;
+    renderQA(report);
+    status(body.action === 'generate' ? '예상 질문을 만들었어요. 답변 메모를 적고 저장해 보세요.' : '답변 메모를 저장했어요.');
+  } catch (error) {
+    status(error.message, true);
+  } finally { setBusy(false); }
+}
+$('qa-generate').addEventListener('click', () => {
+  if (report?.expected_qa && !confirm('예상 질문을 새로 만들면 지금 적은 답변 메모가 사라져요. 계속할까요?')) return;
+  qaRequest({action: 'generate'}, '대본과 연습 결과로 예상 질문을 만들고 있어요.');
+});
+$('qa-save').addEventListener('click', () => qaRequest({action: 'save', items: [...document.querySelectorAll('#qa-list .qa-item')].map(card => ({
+  id: card.dataset.id,
+  question: card.querySelector('.qa-question').textContent,
+  answer_points: [...card.querySelectorAll('.qa-points li')].map(li => li.textContent),
+  my_answer: card.querySelector('textarea').value,
+}))}, '답변 메모를 저장하고 있어요.'));
+
 function render(data) {
   report = data;
+  renderQA(data);
   $('empty').hidden = true;
   $('review').hidden = false;
   $('review-title').value = data.title || '발표 연습';
@@ -605,10 +665,10 @@ $('prepare-live').addEventListener('click', async () => {
     if (seconds === null) throw new Error('발표 중 속도 비교를 위해 목표 시간을 입력해 주세요.');
     const data = await post('/api/presentation/prepare', {
       script: $('script').value, target_seconds: seconds,
-      title: report?.title || '발표 연습 대본',
+      title: report?.title || '발표 연습 대본', review_id: report?.id || null,
     });
     $('presentation-link').href = data.url;
-    status('대본을 전달했어요. 위의 발표 중 화면 열기를 누르고 입력 방식을 확인한 뒤 시작하세요.');
+    status('대본' + (report?.expected_qa ? '과 예상 질문을' : '을') + ' 전달했어요. 위의 발표 중 화면 열기를 누르고 입력 방식을 확인한 뒤 시작하세요.');
   } catch (error) {
     status(error.message, true);
   } finally { setBusy(false); }

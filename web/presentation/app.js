@@ -1,7 +1,7 @@
 'use strict';
 const $ = id => document.getElementById(id);
 let current = null, busy = false, lastAlerts = '', commandRevision = 0, pendingCommand = null;
-let loadedScriptSignature = null;
+let loadedScriptSignature = null, qaSignature = null;
 let microphonesRefreshing = false, microphoneDevicesError = '', selectedMicrophone = '', microphoneSelectionChanged = false;
 let missingMicrophoneId = null, knownMicrophoneIds = null;
 let microphoneSelectionInitialized = false, microphoneSelectionTouched = false;
@@ -181,7 +181,28 @@ async function refreshMicrophones() {
   } catch (e) { microphoneDevicesError = '입력 장치를 확인할 수 없습니다. ' + e.message; }
   finally { microphonesRefreshing = false; renderMicrophoneState(); }
 }
+function renderExpectedQA(qa) {
+  const signature = JSON.stringify(qa || null);
+  if (signature === qaSignature) return;  // keep opened items while the 200 ms poll re-renders
+  qaSignature = signature;
+  $('qa-card').hidden = !qa || !qa.items.length;
+  if (!qa) return;
+  $('qa-source').textContent = `연습 모드에서 준비한 ${qa.items.length}개 · 발표가 끝난 뒤 질의응답에 활용하세요.`;
+  $('qa-items').replaceChildren(...qa.items.map((item, index) => {
+    const box = node('details', undefined, 'qa-entry');
+    if (index === 0) box.open = true;
+    const summary = node('summary');
+    summary.append(node('span', item.category, 'qa-tag'), node('span', item.question, 'qa-q'));
+    const points = node('ul', undefined, 'qa-points');
+    points.append(...item.answer_points.map(point => node('li', point)));
+    box.append(summary, points);
+    if (item.my_answer) box.append(node('p', item.my_answer, 'qa-mine'));
+    return box;
+  }));
+}
+
 function render(data) {
+  renderExpectedQA(data.expected_qa);
   $('review-link').hidden = !data.review_url;
   if (data.review_url) $('review-link').href = data.review_url;
   current = data;

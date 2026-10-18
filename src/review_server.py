@@ -17,6 +17,7 @@ from urllib.parse import urlsplit
 from src.review_analysis import build_review
 from src.review_audio import model_paths
 from src.review_db import ReviewDB
+from src import expected_qa as qa
 from src.review_media import VIDEO_EXTENSIONS
 from src.review_script import extract_script, MAX_SCRIPT_BYTES
 from src.review_handoff import build_handoff
@@ -44,6 +45,7 @@ class ReviewApp:
         self.jobs = {}
         self.analysis_lock = threading.Lock()
         self.data_lock = threading.Lock()
+        self.qa_lock = threading.Lock()
         self.db = ReviewDB(self.root / 'recordings' / 'reviews.db')
         self.db.sync(self.storage)
 
@@ -77,11 +79,51 @@ class ReviewApp:
         if report['media']['kind'] == 'video':
             report['method']['gaze'] = '정면 카메라 기준 얼굴·눈 특징의 방향 추정입니다. 실제 청중과 눈을 맞췄는지는 알 수 없습니다.'
         folder = self.folder(job_id)
+        if (folder / 'expected_qa.json').is_file():
+            report['expected_qa'] = json.loads((folder / 'expected_qa.json').read_text(encoding='utf-8'))
         self.write_json(folder / 'coaching_input.json', build_handoff(report))
         self.write_json(folder / 'options.json', options)
         self.write_json(folder / 'report.json', report)
         self.db.upsert(report)
         return report
+
+    def qa_coach(self):
+        coach = getattr(self.presentation, 'coach', None)
+        return coach if hasattr(coach, 'model') and hasattr(coach, 'base_url') else None
+
+    def expected_qa(self, job_id, data):
+        folder = self.folder(job_id)
+        if not (folder / 'report.json').is_file():
+            raise ValueError('분석이 끝난 기록에서 예상 질문을 만들 수 있습니다.')
+        path = folder / 'expected_qa.json'
+        action = data.get('action')
+        if action == 'generate':
+            if not self.qa_lock.acquire(blocking=False):
+                raise ValueError('예상 질문을 만들고 있습니다. 잠시 후 다시 시도해 주세요.')
+            try:
+                with self.data_lock:
+                    report = json.loads((folder / 'report.json').read_text(encoding='utf-8'))
+                document = qa.generate(report.get('script', ''), report, self.qa_coach())
+            finally:
+                self.qa_lock.release()
+        elif action == 'save':
+            if not path.is_file():
+                raise ValueError('먼저 예상 질문을 만들어 주세요.')
+            current = json.loads(path.read_text(encoding='utf-8'))
+            edited = qa.sanitize_for_live({'items': data.get('items')})['items']
+            by_id = {item['id']: item for item in current['items']}
+            if any(item['id'] not in by_id for item in edited):
+                raise ValueError('없는 예상 질문입니다. 새로고침 후 다시 시도해 주세요.')
+            current['items'] = [{**by_id[item['id']], 'my_answer': item['my_answer']} for item in edited]
+            document = current
+        else:
+            raise ValueError('예상 질문 요청 형식이 올바르지 않습니다.')
+        with self.data_lock:
+            self.write_json(path, document)
+            report = json.loads((folder / 'report.json').read_text(encoding='utf-8'))
+            report['expected_qa'] = document
+            self.write_json(folder / 'report.json', report)
+        return document
 
     def delete_review(self, job_id):
         folder = self.folder(job_id)
@@ -326,10 +368,14 @@ def make_handler(app):
                     if app.presentation is None:
                         raise ValueError('통합 실행 파일 start_by_your_side.cmd로 열어 주세요.')
                     data = self.json_body()
-                    app.presentation.command('script', {
-                        'text': data.get('script'), 'duration_sec': data.get('target_seconds'),
-                        'title': data.get('title') or '발표 연습 대본',
-                    })
+                    command = {'text': data.get('script'), 'duration_sec': data.get('target_seconds'),
+                               'title': data.get('title') or '발표 연습 대본'}
+                    review_id = data.get('review_id')
+                    if review_id:
+                        path = app.folder(review_id) / 'expected_qa.json'
+                        if path.is_file():
+                            command['expected_qa'] = json.loads(path.read_text(encoding='utf-8'))
+                    app.presentation.command('script', command)
                     return self.send_json({'url': app.presentation_url, 'prepared': True})
                 if route == '/api/upload':
                     suffix = self.headers.get('X-Audio-Extension', '').lower()
@@ -364,6 +410,9 @@ def make_handler(app):
                     app.start_analysis(job_id, {'script': data.get('script', ''), 'target_seconds': data.get('target_seconds'),
                                                 'edits': {}, 'gaze_options': data.get('gaze_options', {})})
                     return self.send_json({'id': job_id, 'status': 'running'}, 202)
+                match = re.fullmatch(r'/api/reviews/([a-f0-9]{32})/expected-qa', route)
+                if match:
+                    return self.send_json(app.expected_qa(match[1], self.json_body()))
                 match = re.fullmatch(r'/api/reviews/([a-f0-9]{32})', route)
                 if match:
                     data = self.json_body()

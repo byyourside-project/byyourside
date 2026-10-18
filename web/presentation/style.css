@@ -8,3 +8,11 @@
 .judgment-status{font-size:11px;line-height:1.8;color:#54765f;margin:12px 0 0}.transcript-note{font-size:11px;line-height:1.7;color:#8b968d;margin:10px 0 0}.transcript-stage{display:inline-block;font-size:10px;border-radius:12px;padding:3px 7px;margin-left:8px;color:#788878;background:#f0f3ed}.transcript-stage.confirmed{background:#e2f0e8;color:#25604b}.transcript-stage.failed{background:#fff0eb;color:#a64b35}
 .coach-preparation{padding:15px 18px;font-size:12px;line-height:1.8;background:#eef4e9;border:1px solid #dce6d5;border-radius:10px;color:#456347;margin:-8px 0 20px}.coach-preparation.failed{background:#fff0eb;border-color:#f0cfbf;color:#a64b35}
 .pace-status-note{font-size:11px;line-height:1.7;color:#6d8272;margin:8px 0 0}.sentence-timing{margin-top:20px;border-top:1px solid #edf0e8;padding-top:16px}.sentence-timing h3{font-size:13px;font-weight:600;margin:0 0 12px}.sentence-timing-wrap{overflow:auto;max-height:340px;border:1px solid #edf0e8;border-radius:8px}.sentence-timing table{border-collapse:collapse;width:100%;min-width:390px;text-align:left;font-size:11px;font-variant-numeric:tabular-nums}.sentence-timing th,.sentence-timing td{padding:11px 9px;border-bottom:1px solid #edf0e8;white-space:nowrap}.sentence-timing thead th{background:#f5f7f2;color:#718075;font-weight:500;position:sticky;top:0}.sentence-timing tbody th{font-weight:500;color:#677c6c}.sentence-timing tr.latest{background:#f2f7ef}.sentence-pace.on_plan{color:#25604b}.sentence-pace.fast,.sentence-pace.slow{color:#966629}.sentence-pace.waiting{color:#8b968d}.timing-estimated{display:block;color:#8b968d;font-size:10px;margin-top:3px}
+.qa-card h2{margin:6px 0 4px}.qa-source{font-size:12px;color:#7a877e;margin:0 0 12px}
+.qa-items{display:flex;flex-direction:column;gap:8px;max-height:420px;overflow-y:auto}
+.qa-entry{border:1px solid var(--border);border-radius:10px;padding:10px 12px;background:#fbfcf9}
+.qa-entry summary{cursor:pointer;display:flex;flex-direction:column;gap:4px;list-style:none}
+.qa-entry summary::-webkit-details-marker{display:none}
+.qa-tag{font-size:10px;font-weight:700;color:var(--green)}.qa-q{font-size:13px;font-weight:700;line-height:1.5}
+.qa-points{margin:8px 0 0;padding-left:16px;font-size:12px;line-height:1.7}
+.qa-mine{margin:8px 0 0;padding:8px 10px;border-radius:8px;background:#eef4ec;font-size:12px;line-height:1.6;white-space:pre-wrap}

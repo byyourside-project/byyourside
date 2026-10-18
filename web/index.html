@@ -83,6 +83,7 @@
             <button id="tab-feedback" class="selected" type="button" role="tab" aria-selected="true" aria-controls="feedback-panel" tabindex="0">확인할 구간</button>
             <button id="tab-transcript" type="button" role="tab" aria-selected="false" aria-controls="transcript-panel" tabindex="-1">발화와 쉼</button>
             <button id="tab-comparison" type="button" role="tab" aria-selected="false" aria-controls="comparison-panel" tabindex="-1">대본 비교</button>
+            <button id="tab-qa" type="button" role="tab" aria-selected="false" aria-controls="qa-panel" tabindex="-1">예상 질문</button>
           </div>
           <section id="feedback-panel" role="tabpanel" aria-labelledby="tab-feedback" tabindex="0">
             <section class="feedback-section" aria-labelledby="pace-title"><h3 id="pace-title">말의 속도</h3><p id="pace-description" class="section-description"></p><p id="pace-target" class="reference-note" hidden></p><div id="pace-intervals" class="feedback-list"></div><p id="pace-next-step" class="field-help"></p></section>
@@ -94,6 +95,13 @@
           </section>
           <section id="comparison-panel" role="tabpanel" aria-labelledby="tab-comparison" tabindex="0" hidden>
             <p class="comparison-note">표현의 유사도를 비교한 결과입니다. ‘확인 필요’는 내용을 빠뜨렸다는 뜻이 아닙니다.</p><div id="comparisons"></div><button id="recompare" class="button secondary" type="button">입력한 대본·목표 시간으로 다시 비교</button>
+          </section>
+          <section id="qa-panel" role="tabpanel" aria-labelledby="tab-qa" tabindex="0" hidden>
+            <div class="panel-intro"><p>발표 후 나올 만한 질문과 답변 포인트입니다.<br><small>대본과 이번 연습 결과를 바탕으로 만든 초안이에요. 내 답변을 적어 두면 발표 중 화면에서도 볼 수 있어요.</small></p>
+              <div class="qa-actions"><button id="qa-generate" class="button small" type="button">예상 질문 만들기</button><button id="qa-save" class="button small secondary" type="button" hidden>답변 메모 저장</button></div></div>
+            <p id="qa-meta" class="field-help"></p>
+            <div id="qa-list" class="qa-list"></div>
+            <p id="qa-limitations" class="comparison-note"></p>
           </section>
           <details class="method"><summary>분석 기준과 현재 한계</summary><div id="methods"></div><p>자동 분석은 연습을 돌아보기 위한 참고 자료입니다. 종합 점수를 매기지 않으며, 저장된 파일 분석 결과는 보드에서의 실시간 성능을 나타내지 않습니다.</p></details>
         </div>
