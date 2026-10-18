@@ -344,7 +344,7 @@ import {createPhotoModelClient, isDirectCapturePhrase} from './model_client.mjs'
       const showElapsed = () => {
         if (elapsedShown) return;
         elapsedShown = true;
-        ui.voiceStatus.textContent += ` (${((performance.now() - startedAt) / 1000).toFixed(1)}초 경과)`;
+        ui.stageStatus.textContent += ` (${((performance.now() - startedAt) / 1000).toFixed(1)}초 경과)`;
       };
       const version = interactionVersion;
       const guard = (handler) => (args) => {
