@@ -6,6 +6,8 @@
 
 사진관 앱·명령 가이드와 Llama 3.2 1B 학습 어댑터를 이 브랜치에 포함했습니다. 원본 모델을 해당 노트북의 Hugging Face 캐시에 받은 뒤 `python scripts/run_photo_booth.py --trained`로 실행합니다. [다른 노트북 설치·시험 안내](docs/photo_booth/OTHER_LAPTOP_TEST.md)와 [학습·검증 결과](docs/photo_booth/GPU_PC_RESULT.md)를 참고하세요.
 
+**시연 영상:** [음성 사진관 PC 시연 보기 (.mov, 73MB)](docs/photo_booth/media/voice-photo-demo-2026-10-18.mov)
+
 ## 발표 전·중·후 함께 실행
 
 Windows 프로젝트 폴더에서 최초 한 번 설치합니다.
